@@ -4,6 +4,8 @@ from PyQt5.QtCore import Qt
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 from .vulkanActor import Actor, ActorType
 from .eventManager import EventManager
+from .leffOverlay import leftOverlay
+
 import math
 
 class VulkanManager:
@@ -18,9 +20,14 @@ class VulkanManager:
 
     Actors = []
 
+    leftOverlay = None
+
     BuildChamberActors = []
 
+    updateActors = False
     GizmoActors = []
+
+    updatePagesRequest = None
     
     # Gizmo dragging variables
     gizmoSelectedAxis = None  # 'X', 'Y', or 'Z'
@@ -29,22 +36,26 @@ class VulkanManager:
 
     picker = vtk.vtkPropPicker()
 
-    def __init__(self, printerBed = []):
+    def __init__(self, printerBed = [], updatePagesFunction = None):
         self.vtkWidget = QVTKRenderWindowInteractor(None)
         self.colors = vtk.vtkNamedColors()
         self.renderer = vtk.vtkRenderer()
         self.vtkWidget.GetRenderWindow().AddRenderer(self.renderer)
         #self.iren = self.vtkWidget.GetRenderWindow().GetInteractor()
-
+        self.updatePagesRequest = updatePagesFunction
         # Ensure the VTK widget can receive mouse release events
         self.vtkWidget.setFocusPolicy(Qt.ClickFocus)
         self.vtkWidget.setFocus()
 
         self.events = EventManager(self.vtkWidget, self)
+        self.leftOverlay = leftOverlay(self.vtkWidget, self.colors, self.renderer, self.events)
+
+        #self.leftOverlay.addButton("Translate", self. 
 
         self.events.AddObserver("LeftButtonPressEvent", self.onLeftButtonPress)
         self.events.AddObserver("MouseMoveEvent", self.onMouseMove)
         self.events.AddObserver("LeftButtonReleaseEvent", self.onLeftButtonRelease)
+        self.events.AddObserver("KeyPressEvent", self.onKeyPress)
 
         self.events.printEnabledEvents()
         # Gradient background (dark → lighter)
@@ -75,15 +86,19 @@ class VulkanManager:
         self.vtkWidget.mouseReleaseEvent = self._qtMouseReleaseEvent
 
         
-        self.set_isometric_view()
+        self.events.set_isometric_view(self.renderer.GetActiveCamera())
 
         #actor = Actor.make_rectangle(2, 2, .25)
         
         #self.renderer.AddActor(actor)
 
         self.contructNewPrinter(printerBed)
+    
+        
+        self.vtkWidget.GetRenderWindow().Render()
 
         
+    
 
     def contructNewPrinter(self, printerBed = []):
 
@@ -131,21 +146,44 @@ class VulkanManager:
         
         #self.vtkWidget.GetRenderWindow().Render()
 
-    def set_isometric_view(self):
-        camera = self.renderer.GetActiveCamera()
-        camera.SetPosition(200, 200, 150)  # Isometric direction
-        camera.SetFocalPoint(0, 0, 0)
-        camera.SetViewUp(0, 0, 1)
+    
 
         self.renderer.ResetCamera()
         self.vtkWidget.GetRenderWindow().Render()
 
-    def removeActor(self, actor):
-        self.renderer.removeActor(actor)
+    def onKeyPress(self, obj, event):
+        if self.events.iren.GetKeySym() == "BackSpace":
+            self.removeActor()
 
-        for i in range(len(self.Actors)):
-            if(self.Actors[i].getActor() == actors ):
-                self.Actors[i].remove()
+    def removeActor(self, obj=None, event=None):
+        selected_actors = set(self.pickedActorLists)
+        if not selected_actors and self.picked_actor is not None:
+            selected_actors.add(self.picked_actor)
+
+        if not selected_actors:
+            return
+
+        remaining_actors = []
+        for actor in self.Actors:
+            actor_widget = actor.getActor()
+            if actor.actorType == ActorType.STL and actor_widget in selected_actors:
+                print("Removing actor:", actor.id)
+                self.renderer.RemoveActor(actor_widget)
+                continue
+
+            if actor.actorType == ActorType.GIZMO:
+                self.renderer.RemoveActor(actor_widget)
+                continue
+
+            remaining_actors.append(actor)
+
+        self.Actors = remaining_actors
+        self.picked_actor = None
+        self.pickedActorLists = []
+        self.vtkWidget.GetRenderWindow().Render()
+
+        if self.updatePagesRequest is not None:
+            self.updatePagesRequest()
 
     def insertActor(self, fileName): # Insert a new
 
@@ -164,9 +202,26 @@ class VulkanManager:
         #actor.GetProperty().SetSpecularPower(60.0)
 
         self.Actors.append(Actor(fileName, actor, ActorType.STL))
+
+        print("Inserted STL Actor with ID:", self.Actors[-1].id)
         self.renderer.AddActor(actor)
         #self.renderer.ResetCamera()
         self.centerObject(actor)
+
+        self.updatePagesRequest()
+
+        #print(self.printActors())
+
+    def printActors(self):
+
+        print("Total Actors:", len(self.Actors))
+        temp = []
+        for actor in self.Actors:
+            print("Actor ID:", actor.id, "Actor Type:", actor.actorType)
+            if(actor.actorType == ActorType.STL):
+                temp.append(actor.id.split("/")[-1])
+
+        return temp
 
     
     def centerObject(self, actor, target_center=(0, 0, 0)):
@@ -195,7 +250,10 @@ class VulkanManager:
     def onLeftButtonPress(self, obj, event):
         #print("Left Button Pressed")
         click_pos = self.events.getEventPosition()
-        self.events.toggleCamera()
+        
+        if self.leftOverlay.determineIfOverlayPressed(click_pos):
+            #Do function assigned to left overlay
+            return
 
         # Remove the build chamber to prevent it from interfering with picking
         for i in range(len(self.BuildChamberActors)):
@@ -217,17 +275,22 @@ class VulkanManager:
         # Is an STL Object
         if isinstance(self.picked_actor, vtk.vtkActor):
             print("STL Actor picked at position:", click_pos)
+  
+           # self.events.toggleCamera(False)
             self.selectActor(self.picked_actor)
 
         elif isinstance(self.picked_actor, vtk.vtkAxesActor):
             print("Gizmo Actor picked at position:", click_pos)
             self.selectGizmo(self.pickedActorLists)
+            self.events.toggleCamera(True)
 
         else: 
             
             
+            
             print("No actor picked at position:", click_pos)
             self.removeSelections()
+            #self.events.toggleCamera()
 
 
     def onMouseMove(self, obj, event):
@@ -261,7 +324,8 @@ class VulkanManager:
 
     def onLeftButtonRelease(self, obj, event):
         print("Left Button Releasaed")
-        self.events.toggleCamera()
+        self.events.toggleCamera(False)
+   
         self.gizmoSelectedAxis = None
         self.gizmoStartPosition = None
         self.gizmoActiveActors = []

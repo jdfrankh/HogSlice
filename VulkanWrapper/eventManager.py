@@ -58,10 +58,25 @@ class EventManager:
         for i in range(len(self.enabledEvents)):
             print(self.enabledEvents[i].id)
 
-    def toggleCamera(self):
+    def toggleCamera(self, mode = False):
+        print("Camera toggled")
         style = self.iren.GetInteractorStyle()
+        """
         if isinstance(style, vtkInteractorStyleTrackballCamera):
             self.iren.SetInteractorStyle(vtkInteractorStyleUser())
         else:
             self.iren.SetInteractorStyle(vtkInteractorStyleTrackballCamera())
+        """
+        if mode:
+            #self.iren.SetInteractorStyle(vtkInteractorStyleUser())
+            self.iren.SetInteractorStyle(vtkInteractorStyleMultiTouchCamera())
+        else:
+            self.iren.SetInteractorStyle(vtkInteractorStyleTrackballCamera())
+            #self.iren.SetInteractorStyle(vtkInteractorStyleMultiTouchCamera())
+
+    def set_isometric_view(self, camera):
+        #camera = self.renderer.GetActiveCamera()
+        camera.SetPosition(200, 200, 150)  # Isometric direction
+        camera.SetFocalPoint(0, 0, 0)
+        camera.SetViewUp(0, 0, 1)
     

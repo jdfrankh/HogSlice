@@ -33,6 +33,8 @@ Integrate the saving functionality here, in which saves the configuration in all
 
 class WindowManager(QMainWindow):
 
+    PageList = []
+
     WindowPages = ["Home", "Settings", "Printer"] 
 
     Printers = ["Hogforge Printer"]
@@ -61,7 +63,7 @@ class WindowManager(QMainWindow):
         layout.addWidget(ButtonLayout.getPage())
 
         # Create and store a persistent VulkanManager instance
-        self.vtk_manager = VulkanManager(self.raycusPrinter.getBedSettings())
+        self.vtk_manager = VulkanManager(self.raycusPrinter.getBedSettings(), self.updatePages)
 
         #Create the multiple pages
         self.stackedLayout = QStackedLayout()
@@ -107,7 +109,7 @@ class WindowManager(QMainWindow):
         
         materialLabel = PageManager(1)
         materialLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Material Settings:")
-        materialLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Printer", listEleements=["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"])
+        materialLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Printer", listElements=["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"])
 
         infillLabel = PageManager(1)
         infillLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Infill:")
@@ -115,11 +117,11 @@ class WindowManager(QMainWindow):
 
         printerLabel = PageManager(1)
         printerLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Printers:")
-        printerLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Material", listEleements= self.Printers)
+        printerLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Material", listElements= self.Printers)
 
         layerHeightLabel = PageManager(1)
         layerHeightLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Layer Height:")
-        layerHeightLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Material", listEleements= ["0.05mm", "0.1mm", "0.15mm", "0.2mm", "0.25mm"])
+        layerHeightLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Material", listElements= ["0.05mm", "0.1mm", "0.15mm", "0.2mm", "0.25mm"])
 
 
 
@@ -128,13 +130,18 @@ class WindowManager(QMainWindow):
         page2.addPage(printerLabel.getPage())
         page2.addPage(layerHeightLabel.getPage())
 
-        page2.createElement(elementType=QType.LIST, layoutType=0, function=lambda value: print(f"List item clicked: {value.text()}"), displayText="Print Queue", listEleements= ["Part1.stl", "Part2.stl", "Part3.stl"])
+
+        page2.createElement(elementType=QType.LIST, layoutType=0, function=lambda value: print(f"List item clicked: {value.text()}"), displayText="Print Queue", listElements= ["Part1.stl", "Part2.stl", "Part3.stl"], updateFunction=1)
         #page2.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Printer", listEleements=["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"])
         #page2.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Material", listEleements= [str(i) for i in range(0,100,10)])
 
         page2.setWidth(300)
 
-
+        self.PageList.append(page2)
+        #self.PageList.append(materialLabel)
+        #self.PageList.append(infillLabel)
+        #self.PageList.append(printerLabel)
+        #self.PageList.append(layerHeightLabel)
 
         miniLayout.addWidget(page2.getPage())
 
@@ -160,6 +167,7 @@ class WindowManager(QMainWindow):
 
         page.setWidth(1460)
 
+        #self.PageList.append(page)
 
         return page 
 
@@ -169,6 +177,8 @@ class WindowManager(QMainWindow):
         page = PageManager(0) # Vertical layout
 
         page.createElement(elementType=QType.LABEL, layoutType=0, displayText="Settings Page - Under Construction")
+
+        #self.PageList.append(page)
 
         return page
 
@@ -181,6 +191,7 @@ class WindowManager(QMainWindow):
         return page
 
     def setPage(self, index):
+
         self.stackedLayout.setCurrentIndex(index)
 
         if index == 0:
@@ -195,25 +206,34 @@ class WindowManager(QMainWindow):
     def dragEnterEvent(self, event):
         
         if event.mimeData().hasUrls():
-            print("Drag event called")
+            #print("Drag event called")
             for url in event.mimeData().urls():
                 if url.toLocalFile().lower().endswith('.stl'):
                     event.acceptProposedAction()
                     return
         event.ignore()
 
+        #self.updatePages()
+
     def dropEvent(self, event):
-        print("Drop event called")
+        #print("Drop event called")
+
+        
 
         for url in event.mimeData().urls():
-            print("URL: ", url)
+           # print("URL: ", url)
             file_path = url.toLocalFile()
             if file_path.lower().endswith('.stl'):
                 self.vtk_manager.insertActor(file_path)
             # self.info_label.setText(f"Loaded: {file_path}")
+        #self.updatePages()
 
     
 
+    def updatePages(self):
+        for page in self.PageList:
+            #print(page.elements)
+            page.update(self.vtk_manager.printActors())   
 
 
 if __name__ == "__main__":
