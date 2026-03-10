@@ -1,0 +1,25 @@
+{
+	"folders": [
+		{
+			"path": "../Hogforge - DesktopApp"
+		},
+		{
+			"path": "."
+		},
+		{
+			"name": "Hogforge Internal Board",
+			"path": "../../PlatformIO/Projects/Hogforge Internal Board"
+		},
+		{
+			"name": "StormBot-Esp32-Codebase-main",
+			"path": "../../../Downloads/StormBot-Esp32-Codebase-main"
+		},
+		{
+			"name": "StormBot-Esp32-Codebase",
+			"path": "../../PlatformIO/Projects/StormBot-Esp32-Codebase"
+		}
+	],
+	"settings": {
+		"github.copilot.chat.codeGeneration.useInstructionFiles": true
+	}
+}
