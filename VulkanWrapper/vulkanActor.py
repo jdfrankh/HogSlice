@@ -69,12 +69,13 @@ class Actor:
             actor.SetMapper(mapper)
             return actor
 
-    def makeGizmo(self,coordinates = [], length=200, unit="mm"):
+    @staticmethod
+    def makeGizmo(coordinates = [], length=200, unit="mm"):
         """
         Create a VTK actor representing a 3D gizmo (axes) with specified length.
         Units can be 'mm' (default) or 'in' (inches).
         """
-        print("Creating Gizmo Actor with length:", length, "and unit:", unit)
+        print("Creating Gizmo Actor with length:", length, "and unit:", unit, "at coordinates:", coordinates)
         if unit == "in":
             length *= 25.4
 

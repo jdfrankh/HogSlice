@@ -17,6 +17,9 @@ class VulkanManager:
     events = None
     picked_actor = None
     pickedActorLists = []
+    selectedMoveType = "Translate"
+
+    moveTypes = ["Translate", "Rotate", "Scale"]
 
     Actors = []
 
@@ -50,7 +53,9 @@ class VulkanManager:
         self.events = EventManager(self.vtkWidget, self)
         self.leftOverlay = leftOverlay(self.vtkWidget, self.colors, self.renderer, self.events)
 
-        #self.leftOverlay.addButton("Translate", self. 
+        self.leftOverlay.addButton("Translate", lambda: self.setMoveType("Translate"))
+        self.leftOverlay.addButton("Rotate", lambda: self.setMoveType("Rotate"))
+        self.leftOverlay.addButton("Scale", lambda: self.setMoveType("Scale"))
 
         self.events.AddObserver("LeftButtonPressEvent", self.onLeftButtonPress)
         self.events.AddObserver("MouseMoveEvent", self.onMouseMove)
@@ -140,19 +145,10 @@ class VulkanManager:
 
         return axes
         
-        #self.BuildChamberActors.append(actor)
-        
-        #self.renderer.AddActor(axes)
-        
-        #self.vtkWidget.GetRenderWindow().Render()
 
-    
-
-        self.renderer.ResetCamera()
-        self.vtkWidget.GetRenderWindow().Render()
 
     def onKeyPress(self, obj, event):
-        if self.events.iren.GetKeySym() == "BackSpace":
+        if self.events.iren.GetKeySym() == "BackSpace" or self.events.iren.GetKeySym() == "Delete":
             self.removeActor()
 
     def removeActor(self, obj=None, event=None):
@@ -248,7 +244,7 @@ class VulkanManager:
 
 
     def onLeftButtonPress(self, obj, event):
-        #print("Left Button Pressed")
+        print("Left Button Pressed")
         click_pos = self.events.getEventPosition()
         
         if self.leftOverlay.determineIfOverlayPressed(click_pos):
@@ -258,6 +254,7 @@ class VulkanManager:
         # Remove the build chamber to prevent it from interfering with picking
         for i in range(len(self.BuildChamberActors)):
             self.renderer.RemoveActor(self.BuildChamberActors[i])
+
 
         # Select the item
         self.picker.Pick(click_pos[0], click_pos[1], 0, self.renderer)
@@ -279,18 +276,24 @@ class VulkanManager:
            # self.events.toggleCamera(False)
             self.selectActor(self.picked_actor)
 
+            if(not self.leftOverlay.overlayEnabled):
+
+                self.leftOverlay.createOverlayActor()
+
+        # Is a Gizmo object
         elif isinstance(self.picked_actor, vtk.vtkAxesActor):
             print("Gizmo Actor picked at position:", click_pos)
             self.selectGizmo(self.pickedActorLists)
             self.events.toggleCamera(True)
 
+        #Nothing is selected
         else: 
-            
-            
-            
+            self.leftOverlay.destroyOverlay()
             print("No actor picked at position:", click_pos)
             self.removeSelections()
             #self.events.toggleCamera()
+
+        self.vtkWidget.GetRenderWindow().Render()
 
 
     def onMouseMove(self, obj, event):
@@ -304,20 +307,49 @@ class VulkanManager:
         camera = self.renderer.GetActiveCamera()
         scale = max(camera.GetDistance(), 1.0) * 0.001
 
-        if self.gizmoSelectedAxis == 'X':
-            delta = (dx * scale, 0.0, 0.0)
-        elif self.gizmoSelectedAxis == 'Y':
-            delta = (0.0, dy * scale, 0.0)
-        else:
-            delta = (0.0, 0.0, ((dx + dy) * 0.5) * scale)
+        if(self.selectedMoveType == "Translate"):
+            if self.gizmoSelectedAxis == 'X':
+                delta = (-dx * scale, 0.0, 0.0)
+            elif self.gizmoSelectedAxis == 'Y':
+                delta = (0.0, -dy * scale, 0.0)
+            else:
+                delta = (0.0, 0.0, ((dx + dy) * 0.5) * scale)
 
-        for actor in self.gizmoActiveActors:
-            if hasattr(actor, "AddPosition"):
-                actor.AddPosition(*delta)
+            for actor in self.gizmoActiveActors:
+                if hasattr(actor, "AddPosition"):
+                    actor.AddPosition(*delta)
 
-        for actor in self.Actors:
-            if actor.actorType == ActorType.GIZMO and hasattr(actor.getActor(), "AddPosition"):
-                actor.getActor().AddPosition(*delta)
+            for actor in self.Actors:
+                if actor.actorType == ActorType.GIZMO and hasattr(actor.getActor(), "AddPosition"):
+                    actor.getActor().AddPosition(*delta)
+        
+        if(self.selectedMoveType == "Rotate"):
+            angle = (dx + dy) * 0.5 * scale * 10  # Rotation speed factor
+            for actor in self.gizmoActiveActors:
+                # Compute world-space center of the actor
+                bounds = actor.GetBounds()
+                cx = (bounds[0] + bounds[1]) / 2.0
+                cy = (bounds[2] + bounds[3]) / 2.0
+                cz = (bounds[4] + bounds[5]) / 2.0
+                pos = actor.GetPosition()
+                # Set origin to center so rotation pivots around center of mass
+                actor.SetOrigin(cx - pos[0], cy - pos[1], cz - pos[2])
+                if self.gizmoSelectedAxis == 'X':
+                    actor.RotateX(angle)
+                elif self.gizmoSelectedAxis == 'Y':
+                    actor.RotateY(angle)
+                else:
+                    actor.RotateZ(angle)
+
+        if(self.selectedMoveType == "Scale"):
+            factor = 1.0 + (dx + dy) * 0.5 * scale  # Scaling speed factor
+            for actor in self.gizmoActiveActors:
+                if self.gizmoSelectedAxis == 'X':
+                    actor.SetScale(factor, 1.0, 1.0)
+                elif self.gizmoSelectedAxis == 'Y':
+                    actor.SetScale(1.0, factor, 1.0)
+                else:
+                    actor.SetScale(1.0, 1.0, factor)
 
         self.vtkWidget.GetRenderWindow().Render()
         self.gizmoStartPosition = current_pos
@@ -333,8 +365,8 @@ class VulkanManager:
     def _qtMouseReleaseEvent(self, event):
         # Ensure release handling even if VTK doesn't emit the event
         self.onLeftButtonRelease(self.events.iren, "LeftButtonReleaseEvent")
-        if self._originalMouseReleaseEvent:
-            self._originalMouseReleaseEvent(event)
+        #if self._originalMouseReleaseEvent:
+        #    self._originalMouseReleaseEvent(event)
 
 
     def selectActor(self, actor):
@@ -370,6 +402,7 @@ class VulkanManager:
                     if(actor.actorType == ActorType.STL):
                         actor.setColor(self.colors.GetColor3d("Red"))
                         gizmoPlacement.append(actor.getActor().GetBounds())
+                        
                     elif(actor.actorType == ActorType.GIZMO):
                         # Begin dragging the gizmo, and move all selected items based on the movement of the gizmo
                         print("Gizmo Actor Selected - Begin Dragging")
@@ -393,32 +426,44 @@ class VulkanManager:
         gizmoMidpoint[1] /= len(gizmoPlacement)
         gizmoMidpoint[2] /= len(gizmoPlacement)
 
-        # Remove previous gizmo actors
-        for actor in self.Actors:
+        if not gizmoPlacement:
+            return
+
+        # Compute gizmo length to fit the selected object(s)
+        dx = max(b[1] - b[0] for b in gizmoPlacement)
+        dy = max(b[3] - b[2] for b in gizmoPlacement)
+        dz = max(b[5] - b[4] for b in gizmoPlacement)
+        gizmo_length = max(dx, dy, dz) * 0.5
+
+        # Remove previous gizmo actors (iterate over a copy to avoid mutation during iteration)
+        for actor in list(self.Actors):
             if actor.actorType == ActorType.GIZMO:
-                self.renderer.RemoveActor(actor.getActor())
+                self.renderer.RemoveViewProp(actor.getActor())
                 self.Actors.remove(actor)
-        # Add new one 
-        self.Actors.append(Actor.makeGizmo(self, gizmoMidpoint))
+        # Add new gizmo centered on the selected part
+        self.Actors.append(Actor.makeGizmo(gizmoMidpoint, length=gizmo_length, unit="mm"))
         # Use AddViewProp for vtkAxesActor to ensure picking works
         gizmo_actor = self.Actors[-1].getActor()
         if isinstance(gizmo_actor, vtk.vtkAxesActor):
             self.renderer.AddViewProp(gizmo_actor)
         else:
             self.renderer.AddActor(gizmo_actor)
+        #self.renderer.GetRenderWindow().Render()
         #Find the picked actor in the list, and show the gizmo actor in the center of the selected items
 
 
-        
-    
+    def setMoveType(self, moveType):
+        self.selectedMoveType = moveType
+        print("Selected Move Type:", self.selectedMoveType)
+
     def removeSelections(self):
         #Remove all selected actors and gizmos
-        for actor in self.Actors:
+        for actor in list(self.Actors):
             actor.isSelected = False
             actor.setColor(self.colors.GetColor3d("LightSteelBlue"))
 
             if actor.actorType == ActorType.GIZMO:
-                self.renderer.RemoveActor(actor.getActor())
+                self.renderer.RemoveViewProp(actor.getActor())
                 self.Actors.remove(actor)
 
         self.pickedActorLists = []

@@ -7,7 +7,7 @@ class Events:
     event = None
 
     def __init__(self, _id, _event):
-        self.id = id
+        self.id = _id
         self.event = _event 
 
 class EventManager:

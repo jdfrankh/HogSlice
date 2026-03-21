@@ -8,8 +8,8 @@ class leftOverlay:
     colors = None
     widgetName = []
 
-    CONST_BUTTON_ID = 1
-    CONST_BUTTON_FUNCTION = 2
+    CONST_BUTTON_ID = 0
+    CONST_BUTTON_FUNCTION = 1
 
     overlayEnabled = False
 
@@ -22,6 +22,8 @@ class leftOverlay:
         self.events = events
         self.colors = colors
         self.widgetName = []
+        self.buttons = []
+        self.textActors = []
 
         #self.createOverlayActor()
         #self.renderer.AddActor2D(self.leftOverlayActor)
@@ -65,7 +67,13 @@ class leftOverlay:
         self.overlayEnabled = True
 
     def destroyOverlay(self):
-        self.renderer.RemoveActor2D(self.leftOverlayActor)
+        if self.leftOverlayActor:
+            self.renderer.RemoveActor2D(self.leftOverlayActor)
+
+        for actor in self.textActors:
+            self.renderer.RemoveActor2D(actor)
+        self.textActors = []
+
         self.overlayEnabled = False
 
     def determineIfOverlayPressed(self, click_pos):
@@ -78,29 +86,44 @@ class leftOverlay:
             normalized_x = click_pos[0] / window_width
             normalized_y = click_pos[1] / window_height
 
-            if 0.10 <= normalized_x <= 0.90 and 0.10 <= normalized_y <= 0.90:
+            if 0.10 <= normalized_x <= 0.90 and 0.0 <= normalized_y <= 0.10:
                 print("Left overlay picked at position:", click_pos)
+                # Check which button was hit using pixel positions
+                initPos = 300
+                button_width = 150
+                button_height = 40
+                x, y = click_pos[0], click_pos[1]
+                for i, button in enumerate(self.buttons):
+                    bx = initPos + i * 200
+                    if bx <= x <= bx + button_width and 30 <= y <= 30 + button_height:
+                        print("Button pressed:", button[self.CONST_BUTTON_ID])
+                        if button[self.CONST_BUTTON_FUNCTION] is not None:
+                            button[self.CONST_BUTTON_FUNCTION]()
+                        return True
                 return True
 
         return False
 
     def buildButtons(self):
-        for button in self.buttons:
+        for actor in self.textActors:
+            self.renderer.RemoveActor2D(actor)
+        self.textActors = []
+
+        initPos = 300
+        for i, button in enumerate(self.buttons):
             print("Building button: ", button[self.CONST_BUTTON_ID])
-            # Create a vtkTextActor for the button label
             text_actor = vtk.vtkTextActor()
             text_actor.SetInput(button[self.CONST_BUTTON_ID])
             text_actor.GetTextProperty().SetColor(self.colors.GetColor3d("White"))
             text_actor.GetTextProperty().SetFontSize(24)
-            text_actor.SetPosition(0.15, 0.15)  # Position within the overlay (normalized coordinates)
+            text_actor.SetPosition(initPos + i * 200, 50)
 
             self.renderer.AddActor2D(text_actor)
+            self.textActors.append(text_actor)
 
     def addButton(self, widget_id, function=None):
-        
-
-
         self.buttons.append([widget_id, function])
+
 
     def removeButton(self, widget_id):
         
