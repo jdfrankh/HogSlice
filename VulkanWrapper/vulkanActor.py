@@ -19,6 +19,7 @@ class Actor:
     actor = None
     id = ""
     isSelected = False
+
     selectColor = None
     defaultColor = None
 
@@ -27,6 +28,8 @@ class Actor:
     events = None
     colors = None
     picker = None
+
+    moveType = None
 
     def __init__(self, _id, actor=None, _actorType = ActorType.NOTYPE, vtkWidget=None, colors=None, renderer=None, events=None, picker=None):
         self.id = _id
@@ -39,24 +42,40 @@ class Actor:
         self.selectColor = colors.GetColor3d("Red")
         self.defaultColor =colors.GetColor3d("LightSteelBlue")
         self.picker = picker
-        print("Scanning for actor with ID:", self.id, "and type:", self.actorType)
+        #print("Scanning for actor with ID:", self.id, "and type:", self.actorType)
         if(actor):
             print("Adding Actor:", self.id, "of type:", self.actorType)
-            self.renderer.AddActor(self.actor)
+
+            self.addActor()
+            #self.renderer.AddActor(self.actor)
+
+    def removeActor(self):
+        self.renderer.RemoveActor(self.actor)
+
+    def addActor(self):
+        print("Adding Actor:", self.id, "of type:", self.actorType)
+        self.renderer.AddActor(self.actor)
 
     def __del__(self):
         if self.actor:
             self.renderer.RemoveActor(self.actor)
 
-    def getActor(self):
+    def getActor(self,):
         return self.actor
+
+    def ifActorClicked(self, keyActor):
+        if self.getActor() == keyActor:
+            return True
+        else:
+            return False
 
     def setColor(self, color):
         self.actor.GetProperty().SetColor(color)
         
         
-    def actorSelected(self):
+    def actorSelected(self, moveType):
         print(f"Selecting Actor {self.id}")
+        self.moveType = moveType 
         self.isSelected = True
         
 
@@ -76,8 +95,11 @@ class Actor:
         cz = (bounds[4] + bounds[5]) / 2.0
         return (cx, cy, cz)
 
-    def getGizmo(self):
-        return None
+    def getActorScale(self, altActor=None):
+        target_actor = altActor if altActor else self.actor
+        return target_actor.GetScale()
+    
+    
 
     def centerObject(self, target_center=(0, 0, 0)):
 
@@ -93,6 +115,9 @@ class Actor:
         translation = [target_center[i] - current_center[i] for i in range(3)]
         # Apply translation
         self.actor.SetPosition(*translation)
+
+    def moveAction(self):
+        pass
 
 
     

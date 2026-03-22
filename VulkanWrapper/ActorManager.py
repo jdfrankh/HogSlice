@@ -17,6 +17,8 @@ class ActorManager:
 
     printerBed = []
 
+    moveActionFlag = False # Determine if mouse movements matter
+
     def __init__(self, vtkWidget, colors, renderer, events,picker, printerBed = []):
         self.vtkWidget = vtkWidget
         self.colors = colors
@@ -43,8 +45,10 @@ class ActorManager:
         for actor in self.Actors:
             if(actor.isSelected and onlyPicked) or not onlyPicked:
                 print("Removing actor:", actor.id)
-                self.renderer.RemoveActor(actor.getActor())
+                actor.removeActor()
+                self.Actors.remove(actor)
 
+        self.renderer.GetRenderWindow().Render()    
 
 
     def insertActor(self, fileName): # Insert a new
@@ -62,7 +66,7 @@ class ActorManager:
         #actor.GetProperty().SetDiffuse(0.8)
         #actor.GetProperty().SetSpecular(0.3)
         #actor.GetProperty().SetSpecularPower(60.0)
-        new_actor = STLActor(actor, self.vtkWidget, self.colors, self.renderer, self.events, fileName.split("/")[-1], self.picker)
+        new_actor = STLActor(actor, self.vtkWidget, self.colors, self.renderer, self.events, fileName.split("/")[-1], self.picker, printerBed=self.printerBed)
         new_actor.centerObject()
 
         self.Actors.append(new_actor)
@@ -88,8 +92,10 @@ class ActorManager:
 
 
 
-    def selectActor(self, clickPos, appendSelected = False):
-        
+    def selectActor(self, clickPos, moveType, appendSelected = False):
+        possibleSelection = False 
+
+        self.moveActionFlag = True
         #self.picked_actor.GetProperty().SetColor(self.colors.GetColor3d("Red"))
         
 
@@ -110,12 +116,12 @@ class ActorManager:
         #Determine what was found 
 
         #Shif pressed to select multiple actors
-        if not appendSelected:
+        #if not appendSelected:
             #print("Shift key detected during pick. Add to list")
-            for actor in self.Actors:
-                if actor.isSelected:
-                    actor.isSelected = False
-                    actor.deselectAction()
+       #     for actor in self.Actors:
+       #         if actor.isSelected:
+       #             actor.isSelected = False
+       #             actor.deselectAction()
                     #Get the midpoints of either selected objects and place the gizmo actor there
                     #bounds = picked.GetBounds()
 
@@ -124,23 +130,44 @@ class ActorManager:
         
 
         #Determine what actor was selected
-        self.picked_actor = self.picker.GetProp3D()
+        picked_actor = self.picker.GetProp3D()
 
-        for actor in self.Actors:
+        #print("Picked Actor:", picked_actor)
+        curentActors = self.Actors
+
+        for actor in curentActors:
             #print("Checking actor:", actor.id)
-            if actor.getActor() == self.picked_actor:
-            #    print("Picked Actor ID:", actor.id)
+            if actor.ifActorClicked(picked_actor):
+            #    print("Picked Actor ID:", actor.id)S
             #    print("Actor Type:", actor.actorType)
                 #actor.isSelected = True
-                actor.actorSelected()
+                actor.actorSelected(moveType)
+                possibleSelection = True
 
-                if(actor.getGizmo()):
-                    self.Actors.append(actor.getGizmo())
+            elif not appendSelected:
+
+                actor.isSelected = False
+                
+                actor.deselectAction()
+
+                
+            
+
+
+        return possibleSelection
+
+
+    def moveSelectedActors(self ):
+        if(self.moveActionFlag):
+            
+            for actor in self.Actors:
+                actor.moveAction()
 
 
 
 
-
+    def finishActions(self):
+        self.moveActionFlag = False
 
 
 
