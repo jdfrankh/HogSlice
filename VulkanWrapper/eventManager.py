@@ -59,7 +59,7 @@ class EventManager:
             print(self.enabledEvents[i].id)
 
     def toggleCamera(self, mode = False):
-        print("Camera toggled")
+        #$print("Camera toggled")
         style = self.iren.GetInteractorStyle()
         """
         if isinstance(style, vtkInteractorStyleTrackballCamera):

@@ -65,12 +65,14 @@ class WindowManager(QMainWindow):
         # Create and store a persistent VulkanManager instance
         self.vtk_manager = VulkanManager(self.raycusPrinter.getBedSettings(), self.updatePages)
 
+        self.vtk_manager.onLeftButtonPress(None, None)
         #Create the multiple pages
         self.stackedLayout = QStackedLayout()
 
         HomePage = self.homePageCreation(self.vtk_manager)
         self.stackedLayout.addWidget(HomePage)
-        self.vtk_manager.reset()
+        #Reset the vtk manager to ensure the build chamber is created and rendered
+        #self.vtk_manager.reset()
         SettingsPage = self.settingsPageCreation()
 
         self.stackedLayout.addWidget(SettingsPage.getPage())
@@ -194,8 +196,8 @@ class WindowManager(QMainWindow):
 
         self.stackedLayout.setCurrentIndex(index)
 
-        if index == 0:
-            self.vtk_manager.reset()
+        #if index == 0:
+            #self.vtk_manager.reset()
     
     
 
@@ -224,7 +226,9 @@ class WindowManager(QMainWindow):
            # print("URL: ", url)
             file_path = url.toLocalFile()
             if file_path.lower().endswith('.stl'):
-                self.vtk_manager.insertActor(file_path)
+                self.vtk_manager.parseActor(file_path)
+
+                self.vtk_manager.onLeftButtonPress(None, None)
             # self.info_label.setText(f"Loaded: {file_path}")
         #self.updatePages()
 
