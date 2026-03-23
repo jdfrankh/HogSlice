@@ -1,12 +1,10 @@
-
 import turtle
 import numpy as np
 from stl import mesh
 from shapely.ops import linemerge, unary_union, polygonize
 from shapely.geometry import LineString, MultiLineString, GeometryCollection, Point, Polygon
-
+import vtk
 import time
-
 
 
 class gcodeShaper():
@@ -15,15 +13,16 @@ class gcodeShaper():
 
     gcode_lines = []
 
-    t = turtle.Turtle()
-    
+    #t = turtle.Turtle()
+    t = None 
 
     # Parameters
-    FILENAME = "test.stl"   # your STL file
+    #FILENAME = "test.stl"   # your STL file
     LAYER_HEIGHT = 1.0       # mm per layer
     SCALE = 5                # pixels per mm for turtle drawing
     INFILL_SPACING = 2  # mm
     LASERPOWER = 100 # 0 to 100
+    FEEDRATE = 1500  # mm/min
 
     def __init__(self):
         pass
@@ -156,20 +155,40 @@ class gcodeShaper():
     def set_file_name(self, filename):
         self.FILENAME = filename
 
-    def run_mesh(self):
+    def preareDebugEnviroment(self):
 
-        # Load STL mesh
-        your_mesh = mesh.Mesh.from_file(self.FILENAME)
-
-        # Get bounds
-        zmin = np.min(your_mesh.z)
-        zmax = np.max(your_mesh.z)
-
-        # Set up turtle
+        self.t = turtle.Turtle()
         screen = turtle.Screen()
         screen.setup(1000, 800)
         self.t.speed(0)
         self.t.penup()
+
+
+
+    #TODO: Import the printer that has the GCODE profile
+    def run_mesh(self, infillPercent, power, speed, laserWidth, layerHeight ):
+        """
+        Accepts a rendered scene (e.g., a mesh or actor from Vulkan manager),
+        extracts geometry, and converts it into sliceable data for G-code shaping.
+        """
+        print("Running mesh to G-code with settings - Infill: ", infillPercent, " Power: ", power, " Speed: ", speed, " Laser Width: ", laserWidth, " Layer Height: ", layerHeight)
+
+        self.INFILL_SPACCING = (infillPercent -1) *laserWidth
+
+        self.LASERPOWER = power
+        self.FEEDRATE = speed
+
+        self.LAYER_HEIGHT = np.float32(layerHeight)
+
+        print(f" self.LAYER_HEIGHT: {self.LAYER_HEIGHT}, self.INFILL_SPACCING: {self.INFILL_SPACCING}, self.LASERPOWER: {self.LASERPOWER}, self.FEEDRATE: {self.FEEDRATE}")
+
+        your_mesh = mesh.Mesh.from_file('enviroment.stl')
+
+        zmin = np.min(your_mesh.z)
+        zmax = np.max(your_mesh.z)
+    
+        # Set up turtle
+        self.preareDebugEnviroment()
 
 
         # Slice layer by layer
@@ -208,25 +227,42 @@ class gcodeShaper():
             #    draw_infill_loop(loop, line_spacing, layer)
 
             for i, loop in enumerate(loops_sorted):
-            # Draw the outline
-                coords = list(loop.exterior.coords)
-                self.t.penup()
-                self.t.goto(coords[0][0]*self.SCALE, coords[0][1]*self.SCALE - layer*5)
-                self.t.pendown()
-                for x, y in coords[1:]:
-                    self.t.goto(x*self.SCALE, y*self.SCALE - layer*5)
-                self.t.penup()
+            # Draw the outline for the outermost loop
+                if len(loops_sorted) > 0:
+                    coords = list(loops_sorted[0].exterior.coords)
+                    self.t.penup()
+                    self.t.goto(coords[0][0]*self.SCALE, coords[0][1]*self.SCALE - layer*5)
+                    self.t.pendown()
+                    for x, y in coords[1:]:
+                        self.t.goto(x*self.SCALE, y*self.SCALE - layer*5)
+                    self.t.penup()
 
-                # Draw infill only for inner loops (optional)
-                
-                line_spacing = self.spacing_from_density(loop, 1.6)
-                self.draw_infill_loop(loop, line_spacing, layer)
+                # Draw the outline for the next loop (optional, for visual clarity)
+                if len(loops_sorted) > 1:
+                    coords = list(loops_sorted[1].exterior.coords)
+                    self.t.penup()
+                    self.t.goto(coords[0][0]*self.SCALE, coords[0][1]*self.SCALE - layer*5)
+                    self.t.pendown()
+                    for x, y in coords[1:]:
+                        self.t.goto(x*self.SCALE, y*self.SCALE - layer*5)
+                    self.t.penup()
+
+                # Draw infill in the space between the two loops
+                if len(loops_sorted) > 1:
+                    shell_area = loops_sorted[0].difference(loops_sorted[1])
+                    line_spacing = self.spacing_from_density(loops_sorted[0], 1.6)
+                    self.draw_infill_loop(shell_area, line_spacing, layer)
+                elif len(loops_sorted) == 1:
+                    # If only one loop, fill the whole area
+                    line_spacing = self.spacing_from_density(loops_sorted[0], 1.6)
+                    self.draw_infill_loop(loops_sorted[0], line_spacing, layer)
 
 
+           # print(f"Completed layer {layer} at z={z:.3f}: {type(z)}")
             z += self.LAYER_HEIGHT
             layer += 1
             self.gcode_shift_layer()
-            print("Layer: ", z)
+           # print("Layer: ", z)
             time.sleep(1)
             self.t.clear()
 

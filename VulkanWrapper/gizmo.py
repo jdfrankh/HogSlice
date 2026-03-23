@@ -53,13 +53,13 @@ class Gizmo(Actor):
             self.renderer.AddActor(a)
     
     def ifActorClicked(self, keyActor):
-        print("Checking if clicked actor matches Gizmo actors...")
+       # print("Checking if clicked actor matches Gizmo actors...")
         if not isinstance(self.actor, dict):
             return False
 
         for a in self.actor.values():
             if a == keyActor:
-                print("Clicked actor matches Gizmo actor:")
+       #         print("Clicked actor matches Gizmo actor:")
                 self.isSelected = True
                 return True
             
@@ -149,7 +149,7 @@ class Gizmo(Actor):
                 #self.renderer.AddActor(actor)
 
 
-        print(f"Created Gizmo Actors: {list(actors.keys())}, Center: {center}, Scale: {scale}")
+        #print(f"Created Gizmo Actors: {list(actors.keys())}, Center: {center}, Scale: {scale}")
         return actors
 
     
@@ -157,7 +157,7 @@ class Gizmo(Actor):
         """
         Called when gizmo is selected. Determines which axis was picked and prepares for translation.
         """
-        print("Gizmo Actor Selected - Begin Dragging")
+       # print("Gizmo Actor Selected - Begin Dragging")
         self.events.toggleCamera(True)
 
         click_pos = self.events.getEventPosition()
@@ -171,7 +171,7 @@ class Gizmo(Actor):
                     break
 
         if self.gizmoSelectedAxis is None:
-            print("No gizmo axis selected")
+        #    print("No gizmo axis selected")
             return
 
         print(f"Selected Axis: {self.gizmoSelectedAxis}")

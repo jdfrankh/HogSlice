@@ -1,4 +1,3 @@
-    
 import vtk
 from PyQt5.QtCore import Qt
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
@@ -7,7 +6,7 @@ from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 from .ActorManager import ActorManager
 from .eventManager import EventManager
 from .leffOverlay import leftOverlay
-
+import numpy as np
 import math
 
 class VulkanManager:
@@ -81,8 +80,10 @@ class VulkanManager:
         
         self.vtkWidget.GetRenderWindow().Render()
 
-        
+    def getScene(self):
+        return self.ActorManager.exportAllActorsToSTL()
     
+
     def setMoveType(self, moveType):
         self.selectedMoveType = moveType
         print("Selected Move Type:", self.selectedMoveType)
@@ -99,7 +100,16 @@ class VulkanManager:
 
         return self.ActorManager.printActors()
     
-    
+    def selectActorById(self, id):
+        shift_pressed = self.vtkWidget.GetRenderWindow().GetInteractor().GetShiftKey()
+        print("Selecting actor by ID:", id)
+         
+        overlayNeeded = self.ActorManager.selectActorByID(id, self.selectedMoveType, shift_pressed)
+
+        if overlayNeeded and not self.leftOverlay.overlayEnabled:
+            self.leftOverlay.createOverlayActor()
+        
+        self.renderer.GetRenderWindow().Render()
 
     def onLeftButtonPress(self, obj, event):
         print("Left Button Pressed----------------------------------")
@@ -145,7 +155,6 @@ class VulkanManager:
         #    self._originalMouseReleaseEvent(event)
 
 
-    
-   
 
-    
+
+

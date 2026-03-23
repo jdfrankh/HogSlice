@@ -1,5 +1,7 @@
 
 
+
+
 class Laser:
 
     id = ""
@@ -15,12 +17,24 @@ class Laser:
 
 class Printer:
 
+    
+
     bedWidth = 2
     bedHieght = 2
     bedDepth = 2.5
 
     sweepTime = 1000
     layerDownTime = 200
+
+    infill = 0 # In percent
+    power = 50 # In watts
+    speed = 100 # In mm/min
+    layerHeight = 0.1 # In mm
+    laserWidth = 0.01 # in mm, for the raycus printer
+    layerHeight = 0.1 # In mm
+
+    material = "M2 Steel"    
+
 
     offsets = [0,0,0] #x,y,z
 

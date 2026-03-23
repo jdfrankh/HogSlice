@@ -97,7 +97,7 @@ class PageManager:
     
     def getElements(self):
         return self.elements
-    
+   
     def appendElements(self, elements):
         self.elements.extend(elements)
 

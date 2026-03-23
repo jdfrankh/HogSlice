@@ -13,6 +13,41 @@ import math
 
 class ActorManager:
 
+    def exportAllActorsToSTL(self):
+        """
+        Export all non-build-chamber actors to a single STL file.
+        """
+        append_filter = vtk.vtkAppendPolyData()
+        for actor in self.Actors:
+            # Skip build chamber
+            if hasattr(actor, 'actorType') and actor.actorType == ActorType.BUILD_CHAMBER:
+                continue
+            # Get the VTK actor
+            vtk_actor = actor.getActor() if hasattr(actor, 'getActor') else getattr(actor, 'actor', None)
+            if vtk_actor is None:
+                continue
+            mapper = vtk_actor.GetMapper()
+            if mapper is None:
+                continue
+            polydata = mapper.GetInput()
+            if polydata is None:
+                continue
+            # Apply actor's transform to polydata
+            transform = vtk.vtkTransform()
+            transform.SetMatrix(vtk_actor.GetMatrix())
+            tf_filter = vtk.vtkTransformPolyDataFilter()
+            tf_filter.SetInputData(polydata)
+            tf_filter.SetTransform(transform)
+            tf_filter.Update()
+            append_filter.AddInputData(tf_filter.GetOutput())
+        append_filter.Update()
+        merged = append_filter.GetOutput()
+        writer = vtk.vtkSTLWriter()
+        #return writer
+        writer.SetFileName('enviroment.stl')
+        writer.SetInputData(merged)
+        writer.Write()
+
     Actors = []
 
     printerBed = []
@@ -90,6 +125,24 @@ class ActorManager:
     
 
 
+    def selectActorByID(self, id, moveType, appendSelected = False):
+        itemSelected = False
+
+        for actor in self.Actors:
+            if actor.id == id:
+
+                actor.isSelected = True
+                actor.actorSelected(moveType)
+                itemSelected = True
+            
+            elif not appendSelected:
+                actor.isSelected = False
+                
+                actor.deselectAction()
+
+       # self.renderer.GetRenderWindow().Render()
+       
+        return itemSelected
 
 
     def selectActor(self, clickPos, moveType, appendSelected = False):

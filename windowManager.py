@@ -11,6 +11,8 @@ from QtWrapper.pageManger import PageManager, QType
 from VulkanWrapper.vulkanManager import VulkanManager
 from VulkanWrapper.Printer import Printer
 
+from turtleTest import gcodeShaper
+
 import sys
 
 
@@ -39,7 +41,10 @@ class WindowManager(QMainWindow):
 
     Printers = ["Hogforge Printer"]
 
-    raycusPrinter = Printer(2,2,2)
+    currentPrinter = Printer(2,2,2)
+    laserWidth = .01 # in mm, for the raycus printer
+
+    shaper = None
 
     def __init__(self):
         super().__init__()
@@ -63,7 +68,7 @@ class WindowManager(QMainWindow):
         layout.addWidget(ButtonLayout.getPage())
 
         # Create and store a persistent VulkanManager instance
-        self.vtk_manager = VulkanManager(self.raycusPrinter.getBedSettings(), self.updatePages)
+        self.vtk_manager = VulkanManager(self.currentPrinter.getBedSettings(), self.updatePages)
 
         self.vtk_manager.onLeftButtonPress(None, None)
         #Create the multiple pages
@@ -79,6 +84,7 @@ class WindowManager(QMainWindow):
 
         PrinterPage = self.printerPageCreation()
 
+        self.shaper = gcodeShaper()
 
         #add settings and printer pages here later
         self.stackedLayout.addWidget(PrinterPage.getPage())
@@ -95,6 +101,12 @@ class WindowManager(QMainWindow):
         fileMenu.addWidget("Open", self.openFile)
         menu_bar.addMenu(fileMenu.WidgetItem)
 
+    def changeCurrentPrinter(self, attr, value):
+        print(f"Changing printer setting: {attr} to value: {value}")
+        setattr(self.currentPrinter, attr, value)
+
+        
+
     # ----------------------------- Create Page 1 -----------------------------
 
     def homePageCreation(self, vtk_manager):
@@ -104,36 +116,47 @@ class WindowManager(QMainWindow):
         
         miniLayout.addWidget(vtk_manager.vtkWidget)
 
-        page2 = PageManager(0)  # Vertical layout for side bar
-        page2.createElement(elementType=QType.LABEL, layoutType=0, displayText="Print Settings")
-        page2.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: print("Exporting"), displayText="Export to File" )
-        page2.addSpacing(layoutType=0, spacing=10)
+    
         
         materialLabel = PageManager(1)
         materialLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Material Settings:")
-        materialLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Printer", listElements=["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"])
+        materialLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("material", value), displayText="Select Printer", listElements=["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"])
 
         infillLabel = PageManager(1)
         infillLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Infill:")
-        infillLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Infill:")
+        infillLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("infill", value), displayText="Infill:")
+
+        powerLabel = PageManager(1)
+        powerLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Power:")
+        powerLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("power", value), displayText="Power:")
+
+        speedLabel = PageManager(1)
+        speedLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Speed mm/min:")
+        speedLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("speed", value), displayText="Speed:")
+
+        layerHeightLabel = PageManager(1)
+        layerHeightLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Layer Height mm:")
+        layerHeightLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("layerHeight", value), displayText="Select Material", listElements= ["0.05", "0.1", "0.15", "0.2", "0.25"])
+
 
         printerLabel = PageManager(1)
         printerLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Printers:")
         printerLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Material", listElements= self.Printers)
 
-        layerHeightLabel = PageManager(1)
-        layerHeightLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Layer Height:")
-        layerHeightLabel.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Material", listElements= ["0.05mm", "0.1mm", "0.15mm", "0.2mm", "0.25mm"])
-
-
+        page2 = PageManager(0)  # Vertical layout for side bar
+        page2.createElement(elementType=QType.LABEL, layoutType=0, displayText="Print Settings")
+        page2.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: self.shaper.run_mesh(self.currentPrinter.infill, self.currentPrinter.power, self.currentPrinter.speed, self.currentPrinter.laserWidth, self.currentPrinter.layerHeight), displayText="Export to File" )
+        page2.addSpacing(layoutType=0, spacing=10)
 
         page2.addPage(materialLabel.getPage())
+        page2.addPage(powerLabel.getPage())
+        page2.addPage(speedLabel.getPage())
         page2.addPage(infillLabel.getPage())
         page2.addPage(printerLabel.getPage())
         page2.addPage(layerHeightLabel.getPage())
 
 
-        page2.createElement(elementType=QType.LIST, layoutType=0, function=lambda value: print(f"List item clicked: {value.text()}"), displayText="Print Queue", listElements= ["Part1.stl", "Part2.stl", "Part3.stl"], updateFunction=1)
+        page2.createElement(elementType=QType.LIST, layoutType=0, function=lambda value: self.vtk_manager.selectActorById(value.text()), displayText="Print Queue", listElements= [""], updateFunction=1)
         #page2.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Printer", listEleements=["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"])
         #page2.createElement(elementType=QType.COMBOBOX, layoutType=0, function=lambda value: print(f"Combobox changed to: {value}"), displayText="Select Material", listEleements= [str(i) for i in range(0,100,10)])
 
@@ -215,7 +238,7 @@ class WindowManager(QMainWindow):
                     return
         event.ignore()
 
-        #self.updatePages()
+        self.updatePages()
 
     def dropEvent(self, event):
         #print("Drop event called")
@@ -230,7 +253,7 @@ class WindowManager(QMainWindow):
 
                 self.vtk_manager.onLeftButtonPress(None, None)
             # self.info_label.setText(f"Loaded: {file_path}")
-        #self.updatePages()
+        self.updatePages()
 
     
 
