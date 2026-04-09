@@ -307,7 +307,7 @@ class Gizmo(Actor):
         delta = dx if abs(dx) > abs(dy) else dy
 
         if self.moveType == "Translate":
-            self._translateAction(delta)
+            self._translateAction(current_pos)
         elif self.moveType == "Rotate":
             self._rotateAction(delta)
         elif self.moveType == "Scale":
@@ -316,30 +316,40 @@ class Gizmo(Actor):
         self.gizmoStartPosition = current_pos
         self.vtkWidget.GetRenderWindow().Render()
 
-    def _translateAction(self, delta):
-        speed = 0.5
-        offset = delta * speed
+    def _displayToWorld(self, display_x, display_y, ref_world_pos):
+        """Convert display coordinates to world coordinates using a reference point's depth."""
+        self.renderer.SetWorldPoint(ref_world_pos[0], ref_world_pos[1], ref_world_pos[2], 1.0)
+        self.renderer.WorldToDisplay()
+        depth = self.renderer.GetDisplayPoint()[2]
+
+        self.renderer.SetDisplayPoint(display_x, display_y, depth)
+        self.renderer.DisplayToWorld()
+        wp = self.renderer.GetWorldPoint()
+        if wp[3] != 0:
+            return [wp[i] / wp[3] for i in range(3)]
+        return list(ref_world_pos)
+
+    def _translateAction(self, current_display_pos):
         parent = self.parentActor
         pos = list(parent.GetPosition())
 
-        if self.gizmoSelectedAxis == 'Z':
-            pos[0] -= offset
-        elif self.gizmoSelectedAxis == 'X':
-            pos[1] += offset
-        elif self.gizmoSelectedAxis == 'Y':
-            pos[2] += offset
+        world_start = self._displayToWorld(self.gizmoStartPosition[0], self.gizmoStartPosition[1], pos)
+        world_current = self._displayToWorld(current_display_pos[0], current_display_pos[1], pos)
 
+        if self.gizmoSelectedAxis == 'Z':
+            pos[0] += world_current[0] - world_start[0]
+        elif self.gizmoSelectedAxis == 'X':
+            pos[1] += world_current[1] - world_start[1]
+        elif self.gizmoSelectedAxis == 'Y':
+            pos[2] += world_current[2] - world_start[2]
 
         for oldGizmo in self.actor.values():
-            self.renderer.RemoveActor(oldGizmo)    
+            self.renderer.RemoveActor(oldGizmo)
 
         parent.SetPosition(*pos)
         self.actor = self.makeGizmo()
 
-
-
         for n in self.actor.values():
-
             self.renderer.AddActor(n)
 
     def _rotateAction(self, delta):

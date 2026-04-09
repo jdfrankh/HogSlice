@@ -1,0 +1,7 @@
+README.md
+setup.py
+HogSlice.egg-info/PKG-INFO
+HogSlice.egg-info/SOURCES.txt
+HogSlice.egg-info/dependency_links.txt
+HogSlice.egg-info/requires.txt
+HogSlice.egg-info/top_level.txt

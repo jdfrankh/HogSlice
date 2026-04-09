@@ -204,11 +204,9 @@ class ActorManager:
                 actor.deselectAction()
 
                 
-            
-
-
         return possibleSelection
 
+    
 
     def moveSelectedActors(self ):
         if(self.moveActionFlag):
@@ -217,7 +215,10 @@ class ActorManager:
                 actor.moveAction()
 
 
-
+    def changeMoveType(self, moveType):
+        for actor in self.Actors:
+            if actor.isSelected:
+                actor.actorSelected(moveType)
 
     def finishActions(self):
         self.moveActionFlag = False

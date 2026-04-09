@@ -151,7 +151,8 @@ class gcodeShaper():
     def sort_loops_by_area(self, loops):
         """Return loops sorted from largest to smallest area (outermost first)."""
         return sorted(loops, key=lambda p: p.area, reverse=True)
-        
+
+
     def set_file_name(self, filename):
         self.FILENAME = filename
 
@@ -173,19 +174,23 @@ class gcodeShaper():
         """
         print("Running mesh to G-code with settings - Infill: ", infillPercent, " Power: ", power, " Speed: ", speed, " Laser Width: ", laserWidth, " Layer Height: ", layerHeight)
 
-        self.INFILL_SPACCING = (infillPercent -1) *laserWidth
+        self.INFILL_SPACCING = ((1 - infillPercent )) *laserWidth
 
         self.LASERPOWER = power
         self.FEEDRATE = speed
 
-        self.LAYER_HEIGHT = np.float32(layerHeight)
+
+        self.LAYER_HEIGHT = float(layerHeight)
+        if self.LAYER_HEIGHT <= 0:
+            print("ERROR: Layer height must be positive")
+            return
 
         print(f" self.LAYER_HEIGHT: {self.LAYER_HEIGHT}, self.INFILL_SPACCING: {self.INFILL_SPACCING}, self.LASERPOWER: {self.LASERPOWER}, self.FEEDRATE: {self.FEEDRATE}")
 
         your_mesh = mesh.Mesh.from_file('enviroment.stl')
 
-        zmin = np.min(your_mesh.z)
-        zmax = np.max(your_mesh.z)
+        zmin = float(np.min(your_mesh.z))
+        zmax = float(np.max(your_mesh.z))
     
         # Set up turtle
         self.preareDebugEnviroment()
@@ -198,6 +203,7 @@ class gcodeShaper():
                 # erase everything drawn by the turtle
             segments = []
             # Intersect all triangles with horizontal plane
+            print(f"Slicing layer {layer} at z={z:.3f}")
             for tri in your_mesh.vectors:
                 points = []
                 for j in range(3):
@@ -216,8 +222,9 @@ class gcodeShaper():
 
             # Draw all slice segments directly
             
-
+            print(f"Found {len(segments)} segments for layer {layer}")
             loops = self.make_loops(segments)
+            loops = self._remove_duplicate_loops(loops)
 
             loops_sorted = self.sort_loops_by_area(loops)
 
@@ -225,9 +232,10 @@ class gcodeShaper():
             #for loop in loops:
             #    line_spacing = spacing_from_density(loop, density=1.6)  # 30% infill
             #    draw_infill_loop(loop, line_spacing, layer)
-
+            print(f"Found {len(loops_sorted)} loops for layer {layer}")
             for i, loop in enumerate(loops_sorted):
             # Draw the outline for the outermost loop
+                print(f"Loop {i} area: {loop.area:.2f}")
                 if len(loops_sorted) > 0:
                     coords = list(loops_sorted[0].exterior.coords)
                     self.t.penup()
@@ -258,7 +266,7 @@ class gcodeShaper():
                     self.draw_infill_loop(loops_sorted[0], line_spacing, layer)
 
 
-           # print(f"Completed layer {layer} at z={z:.3f}: {type(z)}")
+            print(f"Completed layer {layer} at z={z:.3f}: {type(z)}")
             z += self.LAYER_HEIGHT
             layer += 1
             self.gcode_shift_layer()

@@ -1,0 +1,6 @@
+[submodule "extruder-turtle-Rhino"]
+	path = extruder-turtle-Rhino
+	url = https://github.com/Hand-and-Machine/extruder-turtle-Rhino.git
+[submodule "rhinoscriptsyntax"]
+	path = rhinoscriptsyntax
+	url = https://github.com/mcneel/rhinoscriptsyntax.git

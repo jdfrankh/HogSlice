@@ -38,8 +38,6 @@ class STLActor(Actor):
 
     def ifActorClicked(self, keyActor):
 
-
-
         if(self.actor == keyActor):
             self.isSelected = True
             if(self.gizmoActor):
@@ -62,7 +60,7 @@ class STLActor(Actor):
 
         gizmo = self.gizmoActor
 
-        if(gizmo):
+        if(gizmo): # If there is a gizmo, check if it was selected
             
             if(gizmo.isSelected):
                 print("STL Gizmo Selected:", self.id)
@@ -86,6 +84,11 @@ class STLActor(Actor):
 
         #super().actorSelected(moveType)
         #self.gizmoActor.makeGizmo()
+    def refactorGizmo(self, moveType):
+        if(self.gizmoActor):
+            self.gizmoActor.__del__()
+
+        self.gizmoActor = Gizmo(self.actor, self.vtkWidget, self.colors, self.renderer, self.events, self.id + "_gizmo", self.picker, moveType, printerBed=self.printerBed)
 
     def deselectAction(self):
         

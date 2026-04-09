@@ -86,6 +86,10 @@ class VulkanManager:
 
     def setMoveType(self, moveType):
         self.selectedMoveType = moveType
+        
+        self.ActorManager.changeMoveType(moveType)
+
+        self.renderer.GetRenderWindow().Render()
         print("Selected Move Type:", self.selectedMoveType)
 
     def onKeyPress(self, obj, event):
@@ -117,14 +121,14 @@ class VulkanManager:
         
         shift_pressed = self.vtkWidget.GetRenderWindow().GetInteractor().GetShiftKey()
 
-        
-
-        displayOverlay = self.ActorManager.selectActor(click_pos,self.selectedMoveType, shift_pressed)
-
         if self.leftOverlay.determineIfOverlayPressed(click_pos):
             #Do function assigned to left overlay
             return
 
+
+        displayOverlay = self.ActorManager.selectActor(click_pos,self.selectedMoveType, shift_pressed)
+
+        
         if(displayOverlay and not self.leftOverlay.overlayEnabled):
             self.leftOverlay.createOverlayActor()
         elif (not displayOverlay and self.leftOverlay.overlayEnabled):

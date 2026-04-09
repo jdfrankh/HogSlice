@@ -11,8 +11,8 @@ from QtWrapper.pageManger import PageManager, QType
 from VulkanWrapper.vulkanManager import VulkanManager
 from VulkanWrapper.Printer import Printer
 
-from turtleTest import gcodeShaper
-
+#from turtleTest import gcodeShaper
+from slicer import sliceItem
 import sys
 
 
@@ -84,7 +84,7 @@ class WindowManager(QMainWindow):
 
         PrinterPage = self.printerPageCreation()
 
-        self.shaper = gcodeShaper()
+        #self.shaper = gcodeShaper()
 
         #add settings and printer pages here later
         self.stackedLayout.addWidget(PrinterPage.getPage())
@@ -145,7 +145,8 @@ class WindowManager(QMainWindow):
 
         page2 = PageManager(0)  # Vertical layout for side bar
         page2.createElement(elementType=QType.LABEL, layoutType=0, displayText="Print Settings")
-        page2.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: self.shaper.run_mesh(self.currentPrinter.infill, self.currentPrinter.power, self.currentPrinter.speed, self.currentPrinter.laserWidth, self.currentPrinter.layerHeight), displayText="Export to File" )
+        #page2.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: self.shaper.run_mesh(self.currentPrinter.infill, self.currentPrinter.power, self.currentPrinter.speed, self.currentPrinter.laserWidth, self.currentPrinter.layerHeight), displayText="Export to File" )
+        page2.createElement(elementType=QType.BUTTON, layoutType=0, function=self.exportGcode, displayText="Export Gcode" )
         page2.addSpacing(layoutType=0, spacing=10)
 
         page2.addPage(materialLabel.getPage())
@@ -174,6 +175,18 @@ class WindowManager(QMainWindow):
         container = QWidget()
         container.setLayout(miniLayout)
         return container
+
+    def exportGcode(self):
+        print("Exporting Gcode with settings:")
+        print(f"Infill: {self.currentPrinter.infill}")
+        print(f"Power: {self.currentPrinter.power}")
+        print(f"Speed: {self.currentPrinter.speed}")
+        print(f"Layer Height: {self.currentPrinter.layerHeight}")
+        self.vtk_manager.getScene()
+        infillNormalized = float(self.currentPrinter.infill) / 100.0
+        sliceItem("testName", float(self.currentPrinter.layerHeight), infillNormalized)
+
+
 
     def topBarCreation(self):
 

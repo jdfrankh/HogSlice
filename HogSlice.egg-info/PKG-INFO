@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: HogSlice
+Version: 0.1
+Requires-Dist: vtk==9.6.0
+Requires-Dist: PyQt5>=5.15
+Requires-Dist: extruder-turtle @ git+https://github.com/Hand-and-Machine/extruder-turtle-Rhino.git
+Dynamic: requires-dist

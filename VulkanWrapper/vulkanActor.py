@@ -60,7 +60,7 @@ class Actor:
         if self.actor:
             self.renderer.RemoveActor(self.actor)
 
-    def getActor(self,):
+    def getActor(self):
         return self.actor
 
     def ifActorClicked(self, keyActor):
@@ -68,6 +68,8 @@ class Actor:
             return True
         else:
             return False
+
+
 
     def setColor(self, color):
         self.actor.GetProperty().SetColor(color)
