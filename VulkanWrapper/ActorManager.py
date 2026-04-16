@@ -5,9 +5,11 @@ from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 from .vulkanActor import Actor, ActorType
 from .BuildChamber  import BuildChamber
 from .STLActor import STLActor
+from .origin import Origin
 from .eventManager import EventManager
 from .leffOverlay import leftOverlay
 
+from constants import BuildChamberDisplay
 import math
 
 
@@ -22,6 +24,10 @@ class ActorManager:
             # Skip build chamber
             if hasattr(actor, 'actorType') and actor.actorType == ActorType.BUILD_CHAMBER:
                 continue
+            #Skip origin
+            if hasattr(actor, 'actorType') and actor.actorType == ActorType.ORIGIN:
+                continue
+            
             # Get the VTK actor
             vtk_actor = actor.getActor() if hasattr(actor, 'getActor') else getattr(actor, 'actor', None)
             if vtk_actor is None:
@@ -33,6 +39,7 @@ class ActorManager:
             if polydata is None:
                 continue
             # Apply actor's transform to polydata
+            #necessary for for import, as it takes into account user actions
             transform = vtk.vtkTransform()
             transform.SetMatrix(vtk_actor.GetMatrix())
             tf_filter = vtk.vtkTransformPolyDataFilter()
@@ -67,14 +74,15 @@ class ActorManager:
     def prepareEnviroment(self):
 
         buildChamber = BuildChamber(self.vtkWidget, self.colors, self.renderer, self.events ,self.picker)
-        buildChamber.contructNewPrinter(self.printerBed)
-
+        buildChamber.constructNewPrinter(self.printerBed)
         self.Actors.append(buildChamber)
+        
+        if BuildChamberDisplay.displayOrigin:
+            axis = Origin(self.vtkWidget, self.colors, self.renderer, self.events ,self.picker)
+
+            self.Actors.append(axis)
 
     
-
-   
-
     def removeActor(self, onlyPicked):
 
         for actor in self.Actors:
@@ -95,23 +103,11 @@ class ActorManager:
         mapper.SetInputConnection(reader.GetOutputPort())
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
-        #self.actor.RotateZ(90)
-        #self.actor.SetPosition(20, 10, 0)
-        #actor.GetProperty().SetColor(self.colors.GetColor3d("LightSteelBlue"))
-        #actor.GetProperty().SetDiffuse(0.8)
-        #actor.GetProperty().SetSpecular(0.3)
-        #actor.GetProperty().SetSpecularPower(60.0)
+
         new_actor = STLActor(actor, self.vtkWidget, self.colors, self.renderer, self.events, fileName.split("/")[-1], self.picker, printerBed=self.printerBed)
         new_actor.centerObject()
 
         self.Actors.append(new_actor)
-
-        #self.renderer.ResetCamera()
-        
-
-        #self.updatePagesRequest()
-
-        #print(self.printActors())
 
     
 
@@ -149,7 +145,6 @@ class ActorManager:
         possibleSelection = False 
 
         self.moveActionFlag = True
-        #self.picked_actor.GetProperty().SetColor(self.colors.GetColor3d("Red"))
         
 
         for actor in (self.Actors):
@@ -210,9 +205,25 @@ class ActorManager:
 
     def moveSelectedActors(self ):
         if(self.moveActionFlag):
-            
             for actor in self.Actors:
                 actor.moveAction()
+
+          
+
+
+    def determineIfOutOfBounds(self, actor):
+
+        
+
+        bounds = actor.actor.GetBounds()
+        xMin, xMax, yMin, yMax, zMin, zMax = bounds
+
+        if (xMin < 0 or xMax > self.printerBed[0] or
+            yMin < 0 or yMax > self.printerBed[1] or
+            zMin < 0 or zMax > self.printerBed[2]):
+            return True
+
+        return False
 
 
     def changeMoveType(self, moveType):

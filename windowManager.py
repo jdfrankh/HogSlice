@@ -1,20 +1,24 @@
 from PyQt5.QtWidgets import (
-    QApplication, QToolBar, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QFileDialog, QToolBar, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QSlider, QDoubleSpinBox, QPushButton, QFrame, QFormLayout, QComboBox,
     QSizePolicy, QMenu, QAction, QShortcut, QLineEdit, QListWidget, QStackedLayout
 )
 from PyQt5.QtGui import QIcon, QPixmap, QKeySequence
-from PyQt5.QtCore import Qt, QSize, QPoint, QEvent
+from PyQt5.QtCore import Qt, QSize, QPoint, QEvent, QThread, pyqtSignal, QObject
 
 from QtWrapper.MenuBarManager import MenuBarManager, MenuBarType
 from QtWrapper.pageManger import PageManager, QType
 from VulkanWrapper.vulkanManager import VulkanManager
 from VulkanWrapper.Printer import Printer
 
+import threading
 #from turtleTest import gcodeShaper
 from slicer import sliceItem
+
 import sys
 
+
+from constants import WindowSettings
 
 #TODO:
 """
@@ -37,12 +41,11 @@ class WindowManager(QMainWindow):
 
     PageList = []
 
-    WindowPages = ["Home", "Settings", "Printer"] 
-
     Printers = ["Hogforge Printer"]
 
     currentPrinter = Printer(2,2,2)
     laserWidth = .01 # in mm, for the raycus printer
+    progressBar = None
 
     shaper = None
 
@@ -50,7 +53,7 @@ class WindowManager(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Hogforge Slicer")
-        self.resize(1460,1080)
+        self.resize(*WindowSettings.windowLayout)
 
         self.createMenuBar()
         
@@ -58,9 +61,10 @@ class WindowManager(QMainWindow):
         central = QWidget()
         layout = QVBoxLayout()
         central.setLayout(layout)
+        central.setFixedSize(WindowSettings.windowLayout[0], WindowSettings.windowLayout[1])
         self.setCentralWidget(central)
 
-        self.setAcceptDrops(True)
+        self.setAcceptDrops(WindowSettings.acceptDropsSetting)
 
         # Create the top bar
         ButtonLayout = self.topBarCreation()
@@ -184,7 +188,19 @@ class WindowManager(QMainWindow):
         print(f"Layer Height: {self.currentPrinter.layerHeight}")
         self.vtk_manager.getScene()
         infillNormalized = float(self.currentPrinter.infill) / 100.0
-        sliceItem("testName", float(self.currentPrinter.layerHeight), infillNormalized)
+        name = QFileDialog.getSaveFileName(self, 'Save Gcode', '', "Gcode files (*.gcode)")
+        
+        if name[0]:  # Check if a file was selected
+            self.progressBar.setValue(0)  # Reset progress bar
+            self.thread = QThread()
+            self.worker = SlicerWorker(name[0], float(self.currentPrinter.layerHeight), infillNormalized)
+            self.worker.moveToThread(self.thread)
+            self.worker.progress.connect(self.progressBar.setValue)
+            self.worker.finished.connect(self.thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.thread.finished.connect(self.thread.deleteLater)
+            self.thread.start()
+            #sliceItem(name[0], float(self.currentPrinter.layerHeight), infillNormalized, progressCallback=self.progressBar.setValue)
 
 
 
@@ -192,9 +208,6 @@ class WindowManager(QMainWindow):
 
         page = PageManager(1)
 
-        #for i in range(len(self.WindowPages)):
-        #    print(i)
-        #    page.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: self.setPage(i), displayText=self.WindowPages[i])
 
         page.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: self.setPage(0), displayText="Home")
         page.addSpacing(layoutType=0, spacing=20)
@@ -202,6 +215,7 @@ class WindowManager(QMainWindow):
         page.addSpacing(layoutType=0, spacing=20)
         page.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: self.setPage(2), displayText="Printer")
         page.addSpacing(layoutType=0, spacing=1000)
+        self.progressBar = page.createElement(elementType=QType.PROGRESS, layoutType=0, listElements=[0,100], function=None, displayText="")
 
         page.setWidth(1460)
 
@@ -276,8 +290,28 @@ class WindowManager(QMainWindow):
             page.update(self.vtk_manager.printActors())   
 
 
+# A separate worker is necesarry to handle the slicing process. 
+class SlicerWorker(QObject):
+    finished = pyqtSignal()
+    progress = pyqtSignal(int)
+
+    def __init__(self, filename, layerThickness, infillPercent):
+        super().__init__()
+        self.filename = filename
+        self.layerThickness = layerThickness
+        self.infillPercent = infillPercent
+
+    def run(self):
+        sliceItem(self.filename, self.layerThickness, self.infillPercent, progressCallback=self.progress.emit)
+        self.finished.emit()
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = WindowManager()
     window.show()
     sys.exit(app.exec_())
+
+
+
+

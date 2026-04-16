@@ -53,6 +53,7 @@ class Printer:
         temp = []
         temp.append(self.bedWidth)
         temp.append(self.bedHieght)
-        temp.append(self.bedWidth)
+        temp.append(self.bedDepth)
+        
 
         return temp

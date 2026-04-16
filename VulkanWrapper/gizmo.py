@@ -3,7 +3,8 @@ from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera, vt
 from vtkmodules.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 
 from VulkanWrapper.vulkanActor import Actor, ActorType
-
+from VulkanWrapper.ActorCreator import ActorCreator
+from constants import ActorConstants
 import math
 #Gizmos are the tools that allow the user to interact with a part within the scene.
 
@@ -15,9 +16,12 @@ import math
 
 
 """
+
+"Lets create another class that handles actor creation. Make it an instance in actor"
+
 class Gizmo(Actor):
 
-    uniformScale = True
+    
         # Gizmo dragging variables
     gizmoSelectedAxis = None  # 'X', 'Y', or 'Z'
     gizmoStartPosition = None  # Initial mouse position
@@ -27,18 +31,24 @@ class Gizmo(Actor):
     surfaceNormals = {}
     #actor = {}
 
-    def __init__(self,item, vtkWidget, colors, renderer, events, id, picker, moveType, printerBed=[]):
+    def __init__(self,item, vtkWidget, colors, renderer, events, id, picker, moveType, printerBed=[], owner=None):
 
 
         self.parentActor = item
+        self.owner = owner
         self.printerBed = printerBed
+        #I need another instance here so gizmo is properly called sadly...
+        self.creator = ActorCreator(vtkWidget, colors, renderer, events, picker, "in")
 
         actor = self.makeGizmo(moveType)
         
         super().__init__(id, actor, ActorType.GIZMO, vtkWidget, colors, renderer, events, picker)
 
+        
     
-    def __del__(self):
+        
+
+    def removeActor(self):
         if isinstance(self.actor, dict):
             for a in self.actor.values():
                 self.renderer.RemoveActor(a) 
@@ -73,7 +83,7 @@ class Gizmo(Actor):
         """
         
         #print(f"Scale: {scale}")
-        self.__del__()
+        self.removeActor()
 
         bounds = self.parentActor.GetBounds()
 
@@ -100,47 +110,26 @@ class Gizmo(Actor):
         colors = vtk.vtkNamedColors()
 
         if moveType == "Translate":
-            actors["X"] = self.make_oriented_arrow("X", colors.GetColor3d("Red"))
-            actors["Y"] = self.make_oriented_arrow("Y", colors.GetColor3d("Green"))
-            actors["Z"] = self.make_oriented_arrow("Z", colors.GetColor3d("Blue"))
+            actors["X"] = self.creator.makeOrientedArrow("X", colors.GetColor3d(ActorConstants.XAxisColor))
+            actors["Y"] = self.creator.makeOrientedArrow("Y", colors.GetColor3d(ActorConstants.YAxisColor))
+            actors["Z"] = self.creator.makeOrientedArrow("Z", colors.GetColor3d(ActorConstants.ZAxisColor))
         elif moveType == "Rotate":
-            actors["X"] = self.make_rotate_ring("X", colors.GetColor3d("Red"))
-            actors["Y"] = self.make_rotate_ring("Y", colors.GetColor3d("Green"))
-            actors["Z"] = self.make_rotate_ring("Z", colors.GetColor3d("Blue"))
+            actors["X"] = self.creator.makeRotateRing("X", colors.GetColor3d(ActorConstants.XAxisColor))
+            actors["Y"] = self.creator.makeRotateRing("Y", colors.GetColor3d(ActorConstants.YAxisColor))
+            actors["Z"] = self.creator.makeRotateRing("Z", colors.GetColor3d(ActorConstants.ZAxisColor))
         elif moveType == "Scale":
-            actors["X"] = self.make_scale_handle("X", colors.GetColor3d("Red"))
-            actors["Y"] = self.make_scale_handle("Y", colors.GetColor3d("Green"))
-            actors["Z"] = self.make_scale_handle("Z", colors.GetColor3d("Blue"))
+            actors["X"] = self.creator.makeScaleHandle("X", colors.GetColor3d(ActorConstants.XAxisColor))
+            actors["Y"] = self.creator.makeScaleHandle("Y", colors.GetColor3d(ActorConstants.YAxisColor))
+            actors["Z"] = self.creator.makeScaleHandle("Z", colors.GetColor3d(ActorConstants.ZAxisColor))
         elif moveType == "SetFlat":
             self.surfaceNormals = {}
-            surfaces = self._extract_flat_surfaces()
-            highlight_colors = [
-                (0.2, 0.8, 0.2),
-                (0.2, 0.2, 0.8),
-                (0.8, 0.8, 0.2),
-                (0.8, 0.2, 0.8),
-                (0.2, 0.8, 0.8),
-                (0.8, 0.5, 0.2),
-            ]
-            for i, (normal, surface_pd) in enumerate(surfaces):
-                key = f"S{i}"
-                color = highlight_colors[i % len(highlight_colors)]
-                smapper = vtk.vtkPolyDataMapper()
-                smapper.SetInputData(surface_pd)
-                surface_actor = vtk.vtkActor()
-                surface_actor.SetMapper(smapper)
-                surface_actor.GetProperty().SetColor(*color)
-                surface_actor.GetProperty().SetOpacity(0.7)
-                surface_actor.SetPosition(self.parentActor.GetPosition())
-                surface_actor.SetOrientation(self.parentActor.GetOrientation())
-                surface_actor.SetScale(self.parentActor.GetScale())
-                actors[key] = surface_actor
-                self.surfaceNormals[key] = normal
+            actors, self.owner.surfaceNormals = self.creator.extractFlatSurfaces(self.parentActor, ActorConstants.FlatSurfaceColor, ActorConstants.FlatSurfaceAreaFraction, ActorConstants.FlatSurfaceAngleThreshold)
+            
         else:
             # Fallback to translate gizmo
-            actors["X"] = self.make_oriented_arrow("X", colors.GetColor3d("Red"))
-            actors["Y"] = self.make_oriented_arrow("Y", colors.GetColor3d("Green"))
-            actors["Z"] = self.make_oriented_arrow("Z", colors.GetColor3d("Blue"))
+            actors["X"] = self.creator.makeOrientedArrow("X", colors.GetColor3d(ActorConstants.XAxisColor))
+            actors["Y"] = self.creator.makeOrientedArrow("Y", colors.GetColor3d(ActorConstants.YAxisColor))
+            actors["Z"] = self.creator.makeOrientedArrow("Z", colors.GetColor3d(ActorConstants.ZAxisColor))
 
         if moveType != "SetFlat":
             for actor in actors.values():
@@ -177,7 +166,11 @@ class Gizmo(Actor):
         print(f"Selected Axis: {self.gizmoSelectedAxis}")
 
         if moveType == "SetFlat":
-            self._setFlatAction()
+            if self.gizmoSelectedAxis not in self.owner.surfaceNormals:
+                return
+            
+            if self.owner is not None:
+                self.owner.setFlatAction(self.gizmoSelectedAxis)
             return
         
         # Store initial position and actors to move
@@ -188,108 +181,9 @@ class Gizmo(Actor):
 
     def deselectAction(self):
         
-        self.__del__()
+        self.removeActor()
         super().deselectAction()
 
-
-    def make_oriented_arrow(self, axis, color):
-        arrow_source = vtk.vtkArrowSource()
-
-        transform = vtk.vtkTransform()
-        if axis == "X":
-            transform.RotateZ(-90)   # X axis
-        elif axis == "Y":
-            transform.RotateY(90)    # Y axis
-        # Z axis needs no rotation (default)
-
-        tf = vtk.vtkTransformPolyDataFilter()
-        tf.SetTransform(transform)
-        tf.SetInputConnection(arrow_source.GetOutputPort())
-
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(tf.GetOutputPort())
-
-        actor = vtk.vtkActor()
-        actor.SetMapper(mapper)
-        actor.GetProperty().SetColor(color)
-        actor.GetProperty().SetLineWidth(100)
-        actor.GetProperty().SetOpacity(1.0)
-
-        return actor
-
-    def make_rotate_ring(self, axis, color):
-        disk = vtk.vtkDiskSource()
-        disk.SetInnerRadius(0.7)
-        disk.SetOuterRadius(1.0)
-        disk.SetCircumferentialResolution(64)
-
-        transform = vtk.vtkTransform()
-        if axis == "X":
-            transform.RotateY(-90)
-        elif axis == "Y":
-            transform.RotateX(90)
-        # Z axis: no rotation
-
-        tf = vtk.vtkTransformPolyDataFilter()
-        tf.SetTransform(transform)
-        tf.SetInputConnection(disk.GetOutputPort())
-
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(tf.GetOutputPort())
-
-        actor = vtk.vtkActor()
-        actor.SetMapper(mapper)
-        actor.GetProperty().SetColor(color)
-        actor.GetProperty().SetOpacity(1.0)
-
-        return actor
-
-    def make_scale_handle(self, axis, color):
-        # Base line along X axis from origin to 1.0
-        line = vtk.vtkLineSource()
-        line.SetPoint1(0.0, 0.0, 0.0)
-        line.SetPoint2(1.0, 0.0, 0.0)
-
-        # Box at the tip of the line
-        cube = vtk.vtkCubeSource()
-        cube.SetXLength(0.2)
-        cube.SetYLength(0.2)
-        cube.SetZLength(0.2)
-
-        cube_transform = vtk.vtkTransform()
-        cube_transform.Translate(1.0, 0.0, 0.0)
-
-        cube_tf = vtk.vtkTransformPolyDataFilter()
-        cube_tf.SetTransform(cube_transform)
-        cube_tf.SetInputConnection(cube.GetOutputPort())
-
-        append = vtk.vtkAppendPolyData()
-        append.AddInputConnection(line.GetOutputPort())
-        append.AddInputConnection(cube_tf.GetOutputPort())
-
-        # Orient the combined geometry along the requested axis
-        transform = vtk.vtkTransform()
-        if axis == "X":
-            transform.RotateZ(-90)
-        elif axis == "Y":
-            transform.RotateY(90)
-        # Z axis: keep default
-
-        tf = vtk.vtkTransformPolyDataFilter()
-        tf.SetTransform(transform)
-        tf.SetInputConnection(append.GetOutputPort())
-
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(tf.GetOutputPort())
-
-        actor = vtk.vtkActor()
-        actor.SetMapper(mapper)
-        actor.GetProperty().SetColor(color)
-        actor.GetProperty().SetOpacity(1.0)
-
-        return actor
-
-    
 
     def moveAction(self):
 
@@ -307,243 +201,26 @@ class Gizmo(Actor):
         delta = dx if abs(dx) > abs(dy) else dy
 
         if self.moveType == "Translate":
-            self._translateAction(current_pos)
+            self.owner._translateAction(self.gizmoSelectedAxis,self.gizmoStartPosition, current_pos)
+
+
+            self.removeActor()
+            self.actor = self.makeGizmo(self.moveType)
+
+            self.addActor()
+            
         elif self.moveType == "Rotate":
-            self._rotateAction(delta)
+            self.owner._rotateAction(self.gizmoSelectedAxis, delta)
         elif self.moveType == "Scale":
-            self._scaleAction(delta)
+            self.owner._scaleAction(self.gizmoSelectedAxis, delta)
 
         self.gizmoStartPosition = current_pos
         self.vtkWidget.GetRenderWindow().Render()
 
-    def _displayToWorld(self, display_x, display_y, ref_world_pos):
-        """Convert display coordinates to world coordinates using a reference point's depth."""
-        self.renderer.SetWorldPoint(ref_world_pos[0], ref_world_pos[1], ref_world_pos[2], 1.0)
-        self.renderer.WorldToDisplay()
-        depth = self.renderer.GetDisplayPoint()[2]
 
-        self.renderer.SetDisplayPoint(display_x, display_y, depth)
-        self.renderer.DisplayToWorld()
-        wp = self.renderer.GetWorldPoint()
-        if wp[3] != 0:
-            return [wp[i] / wp[3] for i in range(3)]
-        return list(ref_world_pos)
+    
 
-    def _translateAction(self, current_display_pos):
-        parent = self.parentActor
-        pos = list(parent.GetPosition())
+    
 
-        world_start = self._displayToWorld(self.gizmoStartPosition[0], self.gizmoStartPosition[1], pos)
-        world_current = self._displayToWorld(current_display_pos[0], current_display_pos[1], pos)
 
-        if self.gizmoSelectedAxis == 'Z':
-            pos[0] += world_current[0] - world_start[0]
-        elif self.gizmoSelectedAxis == 'X':
-            pos[1] += world_current[1] - world_start[1]
-        elif self.gizmoSelectedAxis == 'Y':
-            pos[2] += world_current[2] - world_start[2]
-
-        for oldGizmo in self.actor.values():
-            self.renderer.RemoveActor(oldGizmo)
-
-        parent.SetPosition(*pos)
-        self.actor = self.makeGizmo()
-
-        for n in self.actor.values():
-            self.renderer.AddActor(n)
-
-    def _rotateAction(self, delta):
-        speed = 0.5
-        angle = delta * speed
-        parent = self.parentActor
-
-        if self.gizmoSelectedAxis == 'X':
-            parent.RotateX(angle)
-        elif self.gizmoSelectedAxis == 'Y':
-            parent.RotateY(angle)
-        elif self.gizmoSelectedAxis == 'Z':
-            parent.RotateZ(angle)
-
-    def _scaleAction(self, delta):
-        speed = 0.005
-        factor = 1.0 + delta * speed
-        factor = max(factor, 0.01)  # Prevent negative/zero scale
-        parent = self.parentActor
-        sx, sy, sz = parent.GetScale()
-
-        if(self.uniformScale):
-            parent.SetScale(sx* factor, sy*factor, sz*factor)
-        else:
-
-            if self.gizmoSelectedAxis == 'X':
-                parent.SetScale(sx * factor, sy, sz)
-            elif self.gizmoSelectedAxis == 'Y':
-                parent.SetScale(sx, sy * factor, sz)
-            elif self.gizmoSelectedAxis == 'Z':
-                parent.SetScale(sx, sy, sz * factor)
-
-    def _extract_flat_surfaces(self, min_area_fraction=0.05, angle_threshold=5.0):
-        """Extract groups of coplanar faces that form large flat surfaces."""
-        mapper = self.parentActor.GetMapper()
-        polydata = mapper.GetInput()
-        if polydata is None:
-            mapper.Update()
-            polydata = mapper.GetInput()
-        if polydata is None or polydata.GetNumberOfCells() == 0:
-            return []
-
-        normals_filter = vtk.vtkPolyDataNormals()
-        normals_filter.SetInputData(polydata)
-        normals_filter.ComputeCellNormalsOn()
-        normals_filter.ComputePointNormalsOff()
-        normals_filter.SplittingOff()
-        normals_filter.Update()
-
-        output = normals_filter.GetOutput()
-        cell_normals = output.GetCellData().GetNormals()
-        if cell_normals is None:
-            return []
-
-        num_cells = output.GetNumberOfCells()
-        cos_threshold = math.cos(math.radians(angle_threshold))
-
-        cell_areas = []
-        cell_normal_list = []
-        total_area = 0.0
-
-        for i in range(num_cells):
-            cell = output.GetCell(i)
-            pts = cell.GetPoints()
-            if pts.GetNumberOfPoints() >= 3:
-                p0 = pts.GetPoint(0)
-                p1 = pts.GetPoint(1)
-                p2 = pts.GetPoint(2)
-                area = vtk.vtkTriangle.TriangleArea(p0, p1, p2)
-            else:
-                area = 0.0
-            cell_areas.append(area)
-            total_area += area
-            cell_normal_list.append(cell_normals.GetTuple3(i))
-
-        if total_area == 0:
-            return []
-
-        # Cluster cells by normal similarity
-        assigned = [False] * num_cells
-        groups = []
-
-        for i in range(num_cells):
-            if assigned[i]:
-                continue
-            ni = cell_normal_list[i]
-            mag_i = (ni[0]**2 + ni[1]**2 + ni[2]**2) ** 0.5
-            if mag_i < 1e-9:
-                assigned[i] = True
-                continue
-            group_cells = [i]
-            assigned[i] = True
-            for j in range(i + 1, num_cells):
-                if assigned[j]:
-                    continue
-                nj = cell_normal_list[j]
-                dot = ni[0]*nj[0] + ni[1]*nj[1] + ni[2]*nj[2]
-                if dot > cos_threshold:
-                    group_cells.append(j)
-                    assigned[j] = True
-            group_area = sum(cell_areas[c] for c in group_cells)
-            groups.append((ni, group_cells, group_area))
-
-        min_area = total_area * min_area_fraction
-        result = []
-
-        for normal, cell_ids, group_area in groups:
-            if group_area >= min_area:
-                id_list = vtk.vtkIdTypeArray()
-                id_list.SetNumberOfValues(len(cell_ids))
-                for idx, cid in enumerate(cell_ids):
-                    id_list.SetValue(idx, cid)
-
-                selection_node = vtk.vtkSelectionNode()
-                selection_node.SetFieldType(vtk.vtkSelectionNode.CELL)
-                selection_node.SetContentType(vtk.vtkSelectionNode.INDICES)
-                selection_node.SetSelectionList(id_list)
-
-                selection = vtk.vtkSelection()
-                selection.AddNode(selection_node)
-
-                extract = vtk.vtkExtractSelection()
-                extract.SetInputData(0, output)
-                extract.SetInputData(1, selection)
-                extract.Update()
-
-                geom = vtk.vtkGeometryFilter()
-                geom.SetInputData(extract.GetOutput())
-                geom.Update()
-
-                result.append((normal, geom.GetOutput()))
-
-        return result
-
-    def _setFlatAction(self):
-        """Rotate parent actor so the selected flat surface faces down (-Z)."""
-        if self.gizmoSelectedAxis not in self.surfaceNormals:
-            return
-
-        normal = self.surfaceNormals[self.gizmoSelectedAxis]
-        parent = self.parentActor
-
-        # Transform model-space normal to world space via actor orientation
-        matrix = parent.GetMatrix()
-        transform = vtk.vtkTransform()
-        transform.SetMatrix(matrix)
-        world_normal = transform.TransformNormal(normal)
-
-        mag = (world_normal[0]**2 + world_normal[1]**2 + world_normal[2]**2) ** 0.5
-        if mag < 1e-9:
-            return
-        wn = [c / mag for c in world_normal]
-
-        # Target: surface normal pointing straight down
-        target = [0.0, 0.0, -1.0]
-
-        dot = wn[0]*target[0] + wn[1]*target[1] + wn[2]*target[2]
-        cross = [
-            wn[1]*target[2] - wn[2]*target[1],
-            wn[2]*target[0] - wn[0]*target[2],
-            wn[0]*target[1] - wn[1]*target[0],
-        ]
-        cross_mag = (cross[0]**2 + cross[1]**2 + cross[2]**2) ** 0.5
-
-        if cross_mag < 1e-9:
-            if dot > 0:
-                angle_deg = 0.0
-            else:
-                angle_deg = 180.0
-            axis = [1.0, 0.0, 0.0]
-        else:
-            angle_deg = math.degrees(math.atan2(cross_mag, dot))
-            axis = [c / cross_mag for c in cross]
-
-        if abs(angle_deg) > 0.01:
-            parent.RotateWXYZ(angle_deg, axis[0], axis[1], axis[2])
-
-        # Reposition so bottom sits on build chamber floor
-        if self.printerBed and len(self.printerBed) >= 3:
-            floor_z = -(self.printerBed[2] * 25.4)
-        else:
-            floor_z = 0.0
-        bounds = parent.GetBounds()
-        z_min = bounds[4]
-        pos = list(parent.GetPosition())
-        pos[2] += floor_z - z_min
-        parent.SetPosition(*pos)
-
-        # Rebuild surface highlights with new orientation
-        for old_actor in self.actor.values():
-            self.renderer.RemoveActor(old_actor)
-
-        self.actor = self.makeGizmo("SetFlat")
-        for a in self.actor.values():
-            self.renderer.AddActor(a)
-
-        self.vtkWidget.GetRenderWindow().Render()
+    

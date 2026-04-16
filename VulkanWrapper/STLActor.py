@@ -11,6 +11,8 @@ from VulkanWrapper.gizmo import Gizmo
 class STLActor(Actor):
 
     gizmoActor = None
+    surfaceNormals = None
+
 
     def __init__(self,actor, vtkWidget, colors, renderer, events, id, picker, moveType = "Translate", printerBed=[]):
 
@@ -22,13 +24,13 @@ class STLActor(Actor):
 
         #Assign a gizmo to each STL Actor
 
-        self.gizmoActor = Gizmo(actor, vtkWidget, colors, renderer, events, id + "_gizmo", picker, moveType, printerBed=printerBed)
+        self.gizmoActor = Gizmo(actor, vtkWidget, colors, renderer, events, id + "_gizmo", picker, moveType, printerBed=printerBed, owner=self)
 
         #self.actorSelected(moveType)
     
     def removeActor(self):
 
-        self.gizmoActor.__del__()
+        self.gizmoActor.removeActor()
 
         super().removeActor()
 
@@ -75,20 +77,19 @@ class STLActor(Actor):
 
             self.actor.GetProperty().SetColor(self.selectColor)
 
-            self.gizmoActor = Gizmo(self.actor, self.vtkWidget, self.colors, self.renderer, self.events, self.id + "_gizmo", self.picker, moveType, printerBed=self.printerBed)
+            #Create a new gizmo
+            if self.gizmoActor:
+                self.gizmoActor.deselectAction()
+
+            self.gizmoActor = Gizmo(self.actor, self.vtkWidget, self.colors, self.renderer, self.events, self.id + "_gizmo", self.picker, moveType, printerBed=self.printerBed, owner=self)
             
 
-       # elif(gizmo): #Gizmo exists: Determine if the actor was pressed 
-            
 
-
-        #super().actorSelected(moveType)
-        #self.gizmoActor.makeGizmo()
     def refactorGizmo(self, moveType):
         if(self.gizmoActor):
-            self.gizmoActor.__del__()
+            self.gizmoActor.removeActor()
 
-        self.gizmoActor = Gizmo(self.actor, self.vtkWidget, self.colors, self.renderer, self.events, self.id + "_gizmo", self.picker, moveType, printerBed=self.printerBed)
+        self.gizmoActor = Gizmo(self.actor, self.vtkWidget, self.colors, self.renderer, self.events, self.id + "_gizmo", self.picker, moveType, printerBed=self.printerBed, owner=self)
 
     def deselectAction(self):
         

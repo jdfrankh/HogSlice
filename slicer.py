@@ -651,7 +651,15 @@ def generateSupports(triangles, layerThickness):
 # to draw per slice, as a tuple with if the slice is a
 # bottom or top, and a filename,
 # write the G code to the given file 
-def writeGcode(slices,filename):
+def writeGcode(slices,filename, progressCallback=None):
+
+    #Gcode for unit:
+
+    # G0 -- Rapid move (no laser)
+    # G1 -- Linear move (with laser)
+    #No need for a  G28 for homing
+    #? - Start Swipe 
+
 
     extrudeRate = 0.05
     f = open(filename[:-3] + "gcode",'w')
@@ -663,10 +671,12 @@ def writeGcode(slices,filename):
     f.write("G92 E0\n")
     f.write("G29\n")
 
-    o = bedWidth/2 #origin
+    #o = bedWidth/2 #origin
+    o = 0
     layer = 1; #current layer/slice
     E = 0; #extrusion accumulator
     for s in slices:
+        
 
         f.write(";Layer "+str(layer)+" of "+str(len(slices))+"\n")
 
@@ -718,7 +728,7 @@ def writeGcode(slices,filename):
     f.write("M84\n")
     f.write("G90\n")
 
-def sliceItem(filename, layerThickness, infillPercent):
+def sliceItem(filename, layerThickness, infillPercent, progressCallback=None):
     print("Slicing "+filename+" with layer thickness "+str(layerThickness)+" and infill percent "+str(infillPercent))
     triangles = fileToTriangles('enviroment.stl')
 

@@ -9,6 +9,8 @@ from .leffOverlay import leftOverlay
 import numpy as np
 import math
 
+from constants import BuildChamberDisplay
+
 class VulkanManager:
     
     vtkWidget = None
@@ -61,8 +63,8 @@ class VulkanManager:
         self.events.printEnabledEvents()
         # Gradient background (dark → lighter)
         self.renderer.GradientBackgroundOn()
-        self.renderer.SetBackground(0.1, 0.1, 0.1)      # bottom color
-        self.renderer.SetBackground2(0.3, 0.3, 0.3)     # top color
+        self.renderer.SetBackground(BuildChamberDisplay.backgroundColor1)      # bottom color
+        self.renderer.SetBackground2(BuildChamberDisplay.backgroundColor2)     # top color
 
         self.vtkWidget.Initialize()
         self.vtkWidget.Start()

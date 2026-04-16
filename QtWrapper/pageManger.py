@@ -1,7 +1,7 @@
 
 from enum import Enum
 from PyQt5.QtWidgets import (
-    QApplication, QToolBar, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QProgressBar, QToolBar, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QSlider, QDoubleSpinBox, QPushButton, QFrame, QFormLayout, QComboBox,
     QSizePolicy, QMenu, QAction, QShortcut, QLineEdit, QListWidget, QStackedLayout
 )
@@ -17,6 +17,7 @@ class QType(Enum):
     LABEL = 4
     VTK = 5
     LIST = 6
+    PROGRESS = 7
 
 
 class PageManager:
@@ -73,10 +74,17 @@ class PageManager:
             item.addItems(listElements)
             item.itemClicked.connect(function)
             self.layout.addWidget(item)
+        elif elementType == QType.PROGRESS:
+            item = QProgressBar()
+            item.setMinimum(listElements[0])
+            item.setMaximum(listElements[1])
+            self.layout.addWidget(item)
         else:
             return
 
         self.elements.append([item, function, elementType, updateFunction, displayText])
+
+        return item # Just in case that the item needs to be accessed later
 
     def addSpacing(self, layoutType=-1, spacing=10):
         self.layout.addSpacing(spacing)
