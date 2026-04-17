@@ -1,7 +1,8 @@
 from PyQt5.QtWidgets import (
     QApplication, QFileDialog, QToolBar, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QSlider, QDoubleSpinBox, QPushButton, QFrame, QFormLayout, QComboBox,
-    QSizePolicy, QMenu, QAction, QShortcut, QLineEdit, QListWidget, QStackedLayout
+    QSizePolicy, QMenu, QAction, QShortcut, QLineEdit, QListWidget, QStackedLayout,
+    QMessageBox
 )
 from PyQt5.QtGui import QIcon, QPixmap, QKeySequence
 from PyQt5.QtCore import Qt, QSize, QPoint, QEvent, QThread, pyqtSignal, QObject
@@ -18,7 +19,8 @@ from slicer import sliceItem
 import sys
 
 
-from constants import WindowSettings
+from constants import SettingsDisplay
+from constants import WindowSettings 
 
 #TODO:
 """
@@ -103,6 +105,8 @@ class WindowManager(QMainWindow):
 
         fileMenu = MenuBarManager(MenuBarType.MENU, "fileMenu", "File", self)
         fileMenu.addWidget("Open", self.openFile)
+        fileMenu.addSeparator()
+        fileMenu.addWidget("Import Printer Profile", self.importPrinter)
         menu_bar.addMenu(fileMenu.WidgetItem)
 
     def changeCurrentPrinter(self, attr, value):
@@ -128,15 +132,15 @@ class WindowManager(QMainWindow):
 
         infillLabel = PageManager(1)
         infillLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Infill:")
-        infillLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("infill", value), displayText="Infill:")
+        infillLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("infill", value), displayText="Infill:", listElements= [0,100])
 
         powerLabel = PageManager(1)
         powerLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Power:")
-        powerLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("power", value), displayText="Power:")
+        powerLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("power", value), displayText="Power:", listElements= [1,100])
 
         speedLabel = PageManager(1)
         speedLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Speed mm/min:")
-        speedLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("speed", value), displayText="Speed:")
+        speedLabel.createElement(elementType=QType.BOX, layoutType=0, function=lambda value: self.changeCurrentPrinter("speed", value), displayText="Speed:", listElements= [1,10000])
 
         layerHeightLabel = PageManager(1)
         layerHeightLabel.createElement(elementType=QType.LABEL, layoutType=0, displayText="Layer Height mm:")
@@ -150,7 +154,10 @@ class WindowManager(QMainWindow):
         page2 = PageManager(0)  # Vertical layout for side bar
         page2.createElement(elementType=QType.LABEL, layoutType=0, displayText="Print Settings")
         #page2.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: self.shaper.run_mesh(self.currentPrinter.infill, self.currentPrinter.power, self.currentPrinter.speed, self.currentPrinter.laserWidth, self.currentPrinter.layerHeight), displayText="Export to File" )
-        page2.createElement(elementType=QType.BUTTON, layoutType=0, function=self.exportGcode, displayText="Export Gcode" )
+        self.exportGcodeButton = page2.createElement(elementType=QType.BUTTON, layoutType=0, function=self.exportGcode, displayText="Export Gcode" )
+        self.progressBar = page2.createElement(elementType=QType.PROGRESS, layoutType=0, listElements=[0,100], function=None, displayText="")
+
+        
         page2.addSpacing(layoutType=0, spacing=10)
 
         page2.addPage(materialLabel.getPage())
@@ -182,6 +189,7 @@ class WindowManager(QMainWindow):
 
     def exportGcode(self):
         print("Exporting Gcode with settings:")
+        self.exportGcodeButton.setEnabled(False)  # Disable the button to prevent multiple clicks
         print(f"Infill: {self.currentPrinter.infill}")
         print(f"Power: {self.currentPrinter.power}")
         print(f"Speed: {self.currentPrinter.speed}")
@@ -193,14 +201,14 @@ class WindowManager(QMainWindow):
         if name[0]:  # Check if a file was selected
             self.progressBar.setValue(0)  # Reset progress bar
             self.thread = QThread()
-            self.worker = SlicerWorker(name[0], float(self.currentPrinter.layerHeight), infillNormalized)
+            self.worker = SlicerWorker(name[0], float(self.currentPrinter.layerHeight), infillNormalized, self.currentPrinter.power, self.currentPrinter.speed, self.exportGcodeButton)
             self.worker.moveToThread(self.thread)
             self.worker.progress.connect(self.progressBar.setValue)
+            self.thread.started.connect(self.worker.run)
             self.worker.finished.connect(self.thread.quit)
             self.worker.finished.connect(self.worker.deleteLater)
             self.thread.finished.connect(self.thread.deleteLater)
             self.thread.start()
-            #sliceItem(name[0], float(self.currentPrinter.layerHeight), infillNormalized, progressCallback=self.progressBar.setValue)
 
 
 
@@ -215,7 +223,6 @@ class WindowManager(QMainWindow):
         page.addSpacing(layoutType=0, spacing=20)
         page.createElement(elementType=QType.BUTTON, layoutType=0, function=lambda: self.setPage(2), displayText="Printer")
         page.addSpacing(layoutType=0, spacing=1000)
-        self.progressBar = page.createElement(elementType=QType.PROGRESS, layoutType=0, listElements=[0,100], function=None, displayText="")
 
         page.setWidth(1460)
 
@@ -225,22 +232,165 @@ class WindowManager(QMainWindow):
 
 
     def settingsPageCreation(self):
-        
-        page = PageManager(0) # Vertical layout
 
-        page.createElement(elementType=QType.LABEL, layoutType=0, displayText="Settings Page - Under Construction")
+        # --- Outer horizontal layout: list on left, content on right ---
+        outerLayout = QHBoxLayout()
 
-        #self.PageList.append(page)
+        # Category list on the left
+        self.settingsCategoryList = QListWidget()
+        self.settingsCategoryList.addItems(["General"])
+        self.settingsCategoryList.setFixedWidth(150)
+        self.settingsCategoryList.setCurrentRow(0)
+        outerLayout.addWidget(self.settingsCategoryList)
 
-        return page
+        # Stacked layout for right-side content panels
+        self.settingsStack = QStackedLayout()
+
+        # ===================== General Page =====================
+        generalPage = PageManager(0)
+        generalPage.createElement(elementType=QType.LABEL, layoutType=0, displayText="General Settings")
+        generalPage.addSpacing(layoutType=0, spacing=10)
+
+        # --- Number of Walls ---
+        wallRow = PageManager(1)
+        wallRow.createElement(elementType=QType.LABEL, layoutType=0, displayText="Number of Walls:")
+        wallBox = wallRow.createElement(elementType=QType.BOX, layoutType=0,
+            function=lambda value: self.changeCurrentPrinter("numWalls", int(value)),
+            displayText="Walls:", listElements=[1, 200, getattr(self.currentPrinter, 'numWalls', 2)])
+        wallBox.setDecimals(0)
+        wallBox.setSingleStep(1)
+        wallBox.setValue(getattr(self.currentPrinter, 'numWalls', 2))
+        generalPage.addPage(wallRow.getPage())
+
+        # --- Support Infill % ---
+        supportRow = PageManager(1)
+        supportRow.createElement(elementType=QType.LABEL, layoutType=0, displayText="Support Infill %:")
+        supportBox = supportRow.createElement(elementType=QType.BOX, layoutType=0,
+            function=lambda value: self.changeCurrentPrinter("supportInfill", value),
+            displayText="Support Infill:", listElements=[0, 100, getattr(self.currentPrinter, 'supportInfill', 50.0)])
+        supportBox.setDecimals(1)
+        supportBox.setSingleStep(5.0)
+        supportBox.setValue(getattr(self.currentPrinter, 'supportInfill', 50.0))
+        generalPage.addPage(supportRow.getPage())
+
+        # --- Extrude Width ---
+        extrudeRow = PageManager(1)
+        extrudeRow.createElement(elementType=QType.LABEL, layoutType=0, displayText="Extrude Width (mm):")
+        extrudeBox = extrudeRow.createElement(elementType=QType.BOX, layoutType=0,
+            function=lambda value: self.changeCurrentPrinter("extrudeWidth", value),
+            displayText="Extrude Width:", listElements=[0.01, 5.0, getattr(self.currentPrinter, 'extrudeWidth', 0.71)])
+        extrudeBox.setDecimals(2)
+        extrudeBox.setSingleStep(0.01)
+        extrudeBox.setValue(getattr(self.currentPrinter, 'extrudeWidth', 0.71))
+        generalPage.addPage(extrudeRow.getPage())
+
+        # --- Laser Width ---
+        laserRow = PageManager(1)
+        laserRow.createElement(elementType=QType.LABEL, layoutType=0, displayText="Laser Width (mm):")
+        laserBox = laserRow.createElement(elementType=QType.BOX, layoutType=0,
+            function=lambda value: self.changeCurrentPrinter("laserWidth", value),
+            displayText="Laser Width:", listElements=[0.001, 1.0, getattr(self.currentPrinter, 'laserWidth', 0.1)])
+        laserBox.setDecimals(3)
+        laserBox.setSingleStep(0.001)
+        generalPage.addPage(laserRow.getPage())
+
+        # --- Sweep Time ---
+        sweepRow = PageManager(1)
+        sweepRow.createElement(elementType=QType.LABEL, layoutType=0, displayText="Sweep Time (ms):")
+        sweepBox = sweepRow.createElement(elementType=QType.BOX, layoutType=0,
+            function=lambda value: self.changeCurrentPrinter("sweepTime", value),
+            displayText="Sweep Time:", listElements=[0, 10000, getattr(self.currentPrinter, 'sweepTime', 0)])
+        sweepBox.setDecimals(0)
+        sweepBox.setSingleStep(50)
+        generalPage.addPage(sweepRow.getPage())
+
+        # --- Layer Down Time ---
+        downRow = PageManager(1)
+        downRow.createElement(elementType=QType.LABEL, layoutType=0, displayText="Layer Down Time (ms):")
+        downBox = downRow.createElement(elementType=QType.BOX, layoutType=0,
+            function=lambda value: self.changeCurrentPrinter("layerDownTime", value),
+            displayText="Layer Down Time:", listElements=[0, 10000, getattr(self.currentPrinter, 'layerDownTime', 0)])
+        downBox.setDecimals(0)
+        downBox.setSingleStep(50)
+        generalPage.addPage(downRow.getPage())
+
+        self.settingsStack.addWidget(generalPage.getPage())
+
+        # Wire up list selection to switch content panels
+        self.settingsCategoryList.currentRowChanged.connect(self.settingsStack.setCurrentIndex)
+
+        # Add the stacked content to the right side
+        rightContainer = QWidget()
+        rightContainer.setLayout(self.settingsStack)
+        outerLayout.addWidget(rightContainer)
+
+        # Wrap everything in a PageManager so it integrates with existing code
+        wrapper = PageManager(0)
+        container = QWidget()
+        container.setLayout(outerLayout)
+        wrapper.addPage(container)
+
+        return wrapper
 
     def printerPageCreation(self):
         
-        page = PageManager(0) # Vertical layout
+        page = PageManager(0)  # Vertical layout
 
-        page.createElement(elementType=QType.LABEL, layoutType=0, displayText="Printer Page - Under Construction")
+        page.createElement(elementType=QType.LABEL, layoutType=0, displayText="Printer Hardware Settings")
+        page.addSpacing(layoutType=0, spacing=10)
+
+
+        currentSettings = SettingsDisplay().getAllSettings()
+
+        for setting in currentSettings:
+            row = PageManager(1)
+            row.createElement(elementType=QType.LABEL, layoutType=0, displayText=setting[SettingsDisplay.SHOWNAME])
+            box = row.createElement(elementType=QType.BOX, layoutType=0,
+                function=lambda value, s=setting: self.currentPrinter.changeSetting(s[SettingsDisplay.FUNCTIONELEMENT], value),
+                displayText=setting[SettingsDisplay.SHOWNAME], listElements=setting[SettingsDisplay.LISTELEMENT])
+
+            page.addPage(row.getPage())
+
+
+        # --- Save / Import Buttons ---
+        page.addSpacing(layoutType=0, spacing=20)
+        buttonRow = PageManager(1)
+        buttonRow.createElement(elementType=QType.BUTTON, layoutType=0,
+            function=self.savePrinter, displayText="Save Printer Profile")
+        buttonRow.createElement(elementType=QType.BUTTON, layoutType=0,
+            function=self.importPrinter, displayText="Import Printer Profile")
+        page.addPage(buttonRow.getPage())
 
         return page
+
+    def savePrinter(self):
+        import os
+        printersDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Printers")
+        name = QFileDialog.getSaveFileName(self, 'Save Printer Profile', printersDir, "JSON files (*.json)")
+        if name[0]:
+            self.currentPrinter.saveToFile(name[0])
+            print(f"Printer profile saved to {name[0]}")
+
+    def importPrinter(self):
+        import os
+        printersDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Printers")
+        name = QFileDialog.getOpenFileName(self, 'Import Printer Profile', printersDir, "JSON files (*.json)")
+        if name[0]:
+            try:
+                self.currentPrinter = Printer.loadFromFile(name[0])
+                print(f"Printer profile loaded from {name[0]}")
+                # Rebuild settings and printer pages to reflect new values
+                self.stackedLayout.removeWidget(self.stackedLayout.widget(2))
+                self.stackedLayout.removeWidget(self.stackedLayout.widget(1))
+                newSettings = self.settingsPageCreation()
+                self.stackedLayout.insertWidget(1, newSettings.getPage())
+                newPrinter = self.printerPageCreation()
+                self.stackedLayout.insertWidget(2, newPrinter.getPage())
+            except Exception as e:
+                QMessageBox.warning(self, "Import Error", f"Failed to load printer profile:\n{e}")
+
+    def _setOffset(self, index, value):
+        self.currentPrinter.offsets[index] = value
 
     def setPage(self, index):
 
@@ -295,14 +445,17 @@ class SlicerWorker(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(int)
 
-    def __init__(self, filename, layerThickness, infillPercent):
+    def __init__(self, filename, layerThickness, infillPercent,power,speed, exportButton):
         super().__init__()
         self.filename = filename
         self.layerThickness = layerThickness
         self.infillPercent = infillPercent
-
+        self.power = power
+        self.speed = speed
+        self.exportButton = exportButton
     def run(self):
-        sliceItem(self.filename, self.layerThickness, self.infillPercent, progressCallback=self.progress.emit)
+        sliceItem(self.filename, self.layerThickness, self.infillPercent, self.power, self.speed, progressCallback=self.progress.emit)
+        self.exportButton.setEnabled(True)  # Re-enable the export button after slicing is done
         self.finished.emit()
 
 

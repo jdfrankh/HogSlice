@@ -60,6 +60,14 @@ class PageManager:
         elif elementType == QType.BOX:
             item = QDoubleSpinBox()
             item.valueChanged.connect(function)
+            item.setMinimum(listElements[0])
+            item.setMaximum(listElements[1])
+            if(len(listElements) > 2):
+                item.setValue(listElements[2])
+            if(len(listElements) > 3):
+                item.setDecimals(listElements[3])
+            if(len(listElements) > 4):
+                item.setSingleStep(listElements[4])
             self.layout.addWidget(item)
         elif elementType == QType.COMBOBOX:
             item = QComboBox()

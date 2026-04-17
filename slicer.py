@@ -452,6 +452,62 @@ def cleanPerimeter(s):
     return Slice(zValue_=s.zValue, perimeter_=finalPerimeter, isSurface_=s.isSurface)
 
 
+# given a perimeter (list of line segments) on a single slice,
+# offsets each segment inward by a given distance using the centroid
+# returns a new list of offset line segments
+def offsetPerimeter(perimeter, distance):
+    if len(perimeter) == 0:
+        return []
+
+    # compute centroid of all perimeter endpoints
+    cx, cy = 0.0, 0.0
+    count = 0
+    for line in perimeter:
+        cx += line.p0.x + line.p1.x
+        cy += line.p0.y + line.p1.y
+        count += 2
+    cx /= count
+    cy /= count
+
+    offset = []
+    for line in perimeter:
+        p0 = copy.deepcopy(line.p0)
+        p1 = copy.deepcopy(line.p1)
+
+        # offset p0 toward centroid
+        dx0 = cx - p0.x
+        dy0 = cy - p0.y
+        mag0 = math.sqrt(dx0**2 + dy0**2)
+        if mag0 > delta:
+            p0.x += (dx0 / mag0) * distance
+            p0.y += (dy0 / mag0) * distance
+
+        # offset p1 toward centroid
+        dx1 = cx - p1.x
+        dy1 = cy - p1.y
+        mag1 = math.sqrt(dx1**2 + dy1**2)
+        if mag1 > delta:
+            p1.x += (dx1 / mag1) * distance
+            p1.y += (dy1 / mag1) * distance
+
+        offset.append(Line(p0, p1))
+    return offset
+
+
+# given the number of walls and a list of slices,
+# generates inner wall perimeters for each slice
+# numWalls includes the original perimeter (1 = no extra walls)
+# returns the slices with walls added to each slice's perimeter
+def generateWalls(numWalls, slices):
+    for s in slices:
+        allWalls = list(s.perimeter)
+        for w in range(1, numWalls):
+            wallPerimeter = offsetPerimeter(s.perimeter, extrudeWidth * w)
+            allWalls.extend(wallPerimeter)
+        s.perimeter = allWalls
+    return slices
+
+
 # pseudocode for computing brim of a single convex polyhedron base
 # takes a listof(line segments) which are the base (bottom layer),
 # a number of outlines, and an initial offset
@@ -676,7 +732,8 @@ def writeGcode(slices,filename, progressCallback=None):
     layer = 1; #current layer/slice
     E = 0; #extrusion accumulator
     for s in slices:
-        
+        if progressCallback:
+            progressCallback(60 + int(layer / len(slices) * 40))
 
         f.write(";Layer "+str(layer)+" of "+str(len(slices))+"\n")
 
@@ -728,31 +785,39 @@ def writeGcode(slices,filename, progressCallback=None):
     f.write("M84\n")
     f.write("G90\n")
 
-def sliceItem(filename, layerThickness, infillPercent, progressCallback=None):
+def sliceItem(filename, layerThickness, infillPercent,power,speed, progressCallback=None):
     print("Slicing "+filename+" with layer thickness "+str(layerThickness)+" and infill percent "+str(infillPercent))
-    triangles = fileToTriangles('enviroment.stl')
+    try:
+        triangles = fileToTriangles('enviroment.stl')
 
-    if(infillPercent == 0):
-        infillPercent = 0.01
-    slices_ = separateSlices(triangles, layerThickness)
-    supportSlices = generateSupports(triangles, layerThickness)
+        if(infillPercent == 0):
+            infillPercent = 0.01
+        slices_ = separateSlices(triangles, layerThickness)
+        supportSlices = generateSupports(triangles, layerThickness)
 
-    slices = list()
+        slices = list()
 
-    for s in slices_:
-        slices += [cleanPerimeter(s)]
+        for i, s in enumerate(slices_):
+            slices += [cleanPerimeter(s)]
+            if progressCallback:
+                progressCallback(int((i + 1) / len(slices_) * 30))
 
-    for s in slices:
-        if s.isSurface:
-            s.infill = infill(s.perimeter, 1)
-        else:
-            s.infill = infill(s.perimeter, infillPercent)
+        for i, s in enumerate(slices):
+            if s.isSurface:
+                s.infill = infill(s.perimeter, 1)
+            else:
+                s.infill = infill(s.perimeter, infillPercent)
+            if progressCallback:
+                progressCallback(30 + int((i + 1) / len(slices) * 30))
 
-    for shape in supportSlices:
-        for s in range(len(shape)):
-            slices[s].support += infill(shape[s].perimeter,supportInfill)
+        for shape in supportSlices:
+            for s in range(len(shape)):
+                slices[s].support += infill(shape[s].perimeter,supportInfill)
 
-    writeGcode(slices,filename)
+        writeGcode(slices, filename, progressCallback=progressCallback)
+        print("Gcode writing complete")
+    except Exception as e:
+        print("Error slicing: "+str(e))
 
 def main():
     filename = sys.argv[1]
