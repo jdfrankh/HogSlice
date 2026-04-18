@@ -16,7 +16,7 @@ import pageCreator as pg
 
 #Referece all items concerning your application here
 from pageCreator import DisplayBase, SettingsDisplay, PrinterDisplay, TopBarDisplay, HomeDisplay, currentDisplays, PageID
-
+from slicer import sliceItem
 
 #This page acts as a linker between the window manager, the VTK manager, and all 
 #External values accosciated with the slicer 
@@ -93,6 +93,7 @@ class HogforgeApplication(WindowManager):
             self.worker = SlicerWorker(name[0], float(self.currentPrinter.layerHeight), infillNormalized, self.currentPrinter.power, self.currentPrinter.speed, self.exportGcodeButton)
             self.worker.moveToThread(self.thread)
             self.worker.progress.connect(self.progressBar.setValue)
+            self.worker.gcodeReady.connect(self.vtk_manager.displayGcode)
             self.thread.started.connect(self.worker.run)
             self.worker.finished.connect(self.thread.quit)
             self.worker.finished.connect(self.worker.deleteLater)
@@ -187,6 +188,7 @@ class HogforgeApplication(WindowManager):
 class SlicerWorker(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(int)
+    gcodeReady = pyqtSignal(str)
 
     def __init__(self, filename, layerThickness, infillPercent,power,speed, exportButton):
         super().__init__()
@@ -199,4 +201,6 @@ class SlicerWorker(QObject):
     def run(self):
         sliceItem(self.filename, self.layerThickness, self.infillPercent, self.power, self.speed, progressCallback=self.progress.emit)
         self.exportButton.setEnabled(True)  # Re-enable the export button after slicing is done
+        gcode_path = self.filename[:-3] + "gcode"
+        self.gcodeReady.emit(gcode_path)
         self.finished.emit()

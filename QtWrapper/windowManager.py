@@ -14,7 +14,7 @@ from VulkanWrapper.Printer import Printer
 
 import threading
 #from turtleTest import gcodeShaper
-from slicer import sliceItem
+
 
 import sys
 
@@ -155,7 +155,7 @@ class WindowManager(QMainWindow):
                 self.PageList.append(row)
 
             elif setting[DisplayBase.QTTYPE] == "VTK":
-                row.addPage(self.vtk_manager.vtkWidget)
+                row.addPage(self.vtk_manager.viewWidget)
                 
 
             elif setting[DisplayBase.QTTYPE] == "CREATE PAGE":

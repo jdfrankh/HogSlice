@@ -99,6 +99,8 @@ class PageManager:
             item.setMinimum(listElements[0])
             item.setMaximum(listElements[1])
             self.layout.addWidget(item)
+            item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+ 
         elif elementType == QType.SPACING:
             self.layout.addSpacing(listElements if listElements else 10)
             item = None
