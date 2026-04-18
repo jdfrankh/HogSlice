@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (
     QLabel, QSlider, QDoubleSpinBox, QPushButton, QFrame, QFormLayout, QComboBox,
     QSizePolicy, QMenu, QAction, QShortcut, QLineEdit, QListWidget, QStackedLayout
 )
+from PyQt5.QtCore import Qt
 
 class QType(Enum):
     """Enum for different widget types"""
@@ -18,6 +19,8 @@ class QType(Enum):
     VTK = 5
     LIST = 6
     PROGRESS = 7
+    SPACING = 8
+
 
 
 class PageManager:
@@ -34,6 +37,7 @@ class PageManager:
         else:
             self.layout = QHBoxLayout()
 
+        self.layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.Page.setLayout(self.layout)
 
         #self.layouts.append(QVBoxLayout())
@@ -52,9 +56,10 @@ class PageManager:
                     #element[0].addItems(element[3])
                     element[0].addItems(updateItems)
 
-    def createElement(self,elementType, layoutType=-1, function=None, displayText="", listElements = [] , updateFunction = None):
+    def createElement(self,elementType, layoutType=-1, function=None, displayText="", listElements = [] , updateFunction = None, scaleFuction = [QSizePolicy.Fixed, QSizePolicy.Fixed]):
         if elementType == QType.BUTTON:
             item = QPushButton(displayText)
+            item.setSizePolicy(scaleFuction[0], scaleFuction[1])
             item.clicked.connect(function)
             self.layout.addWidget(item)
         elif elementType == QType.BOX:
@@ -68,11 +73,13 @@ class PageManager:
                 item.setDecimals(listElements[3])
             if(len(listElements) > 4):
                 item.setSingleStep(listElements[4])
+            item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.layout.addWidget(item)
         elif elementType == QType.COMBOBOX:
             item = QComboBox()
             item.currentTextChanged.connect(function)
             item.addItems(listElements)
+            item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             self.layout.addWidget(item)
         elif elementType == QType.LABEL:
             item = QLabel(displayText)
@@ -81,12 +88,21 @@ class PageManager:
             item = QListWidget()
             item.addItems(listElements)
             item.itemClicked.connect(function)
+            if isinstance(self.layout, QVBoxLayout):
+                item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+            else:
+                item.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                
             self.layout.addWidget(item)
         elif elementType == QType.PROGRESS:
             item = QProgressBar()
             item.setMinimum(listElements[0])
             item.setMaximum(listElements[1])
             self.layout.addWidget(item)
+        elif elementType == QType.SPACING:
+            self.layout.addSpacing(listElements if listElements else 10)
+            item = None
+
         else:
             return
 

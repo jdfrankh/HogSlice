@@ -24,7 +24,7 @@ class Printer:
     
 
     bedWidth = 2
-    bedHieght = 2
+    bedHeight = 2
     bedDepth = 2.5
 
     sweepTime = 1000
@@ -124,3 +124,6 @@ class Printer:
         if "offsets" in data:
             printer.offsets = list(data["offsets"])
         return printer
+    
+
+    
