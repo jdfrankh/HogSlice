@@ -43,6 +43,7 @@ class WindowManager(QMainWindow):
 
     PageList = []
 
+
    
 
     def __init__(self):
@@ -155,11 +156,26 @@ class WindowManager(QMainWindow):
                 self.PageList.append(row)
 
             elif setting[DisplayBase.QTTYPE] == "VTK":
-                row.addPage(self.vtk_manager.viewWidget)
+                if(self.vtk_manager):
+                    self.vtk_manager.getVTKWidget().setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                    row.addPage(self.vtk_manager.getVTKWidget())
+
                 
+            elif setting[DisplayBase.QTTYPE] == "SLIDER":
+                methods = setting[DisplayBase.FUNCTIONELEMENT]  # [minGetter, maxGetter, changeHandler]
+                func = getattr(self, methods[2])
+                item = row.createElement(
+                    elementType=QType.SLIDER,
+                    layoutType=setting[DisplayBase.SHOWNAME],
+                    function=func,
+                    listElements=[0, 0]
+                )
+                item.hide()
+                setattr(self, methods[2], item)
+
 
             elif setting[DisplayBase.QTTYPE] == "CREATE PAGE":
-                print("Adding new Row: ", setting[DisplayBase.SHOWNAME])
+               # print("Adding new Row: ", setting[DisplayBase.SHOWNAME])
                 tempRow.append(PageManager(setting[DisplayBase.SHOWNAME]))
             
             elif setting[DisplayBase.QTTYPE] == "FINISH PAGE":
@@ -172,7 +188,7 @@ class WindowManager(QMainWindow):
                     justPopped = True
             #print(tempRow)
             if tempRow == [] and justPopped == False:
-                print("Adding row to page: ", row)
+              #  print("Adding row to page: ", row)
                 page.addPage(row.getPage())   
             
     

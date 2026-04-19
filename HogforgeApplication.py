@@ -11,8 +11,10 @@ from PyQt5.QtCore import Qt, QSize, QPoint, QEvent, QThread, pyqtSignal, QObject
 
 from QtWrapper.windowManager import WindowManager
 from VulkanWrapper.Printer import Printer
-from VulkanWrapper.vulkanManager import VulkanManager
+from HogforgeVulkan import HogforgeVulkan
 import pageCreator as pg
+
+
 
 #Referece all items concerning your application here
 from pageCreator import DisplayBase, SettingsDisplay, PrinterDisplay, TopBarDisplay, HomeDisplay, currentDisplays, PageID
@@ -42,7 +44,7 @@ class HogforgeApplication(WindowManager):
         layout.addWidget(ButtonLayout.getPage())
 
         # Create and store a persistent VulkanManager instance
-        self.vtk_manager = VulkanManager(self.currentPrinter.getBedSettings(), self.updatePages)
+        self.vtk_manager = HogforgeVulkan(self.currentPrinter.getBedSettings(), self.updatePages)
 
         self.vtk_manager.onLeftButtonPress(None, None)
         #Create the multiple pages
@@ -51,30 +53,38 @@ class HogforgeApplication(WindowManager):
         for display in pg.currentDisplays:
             dis = self.pageCreation(display)
             self.stackedLayout.addWidget(dis.getPage())
-        #HomePage = self.homePageCreation(self.vtk_manager)
-        #HomePage = self.pageCreation(HomeDisplay())
-        #self.stackedLayout.addWidget(HomePage.getPage())
-        #Reset the vtk manager to ensure the build chamber is created and rendered
-        #self.vtk_manager.reset()
-        #SettingsPage = self.settingsPageCreation()
-        #SettingsPage = self.pageCreation(SettingsDisplay())
-
-        #self.stackedLayout.addWidget(SettingsPage.getPage())
-
-        #PrinterPage = self.printerPageCreation()
-        
-        #PrinterPage = self.pageCreation(PrinterDisplay())
-        #self.shaper = gcodeShaper()
-
-        #add settings and printer pages here later
-        #self.stackedLayout.addWidget(PrinterPage.getPage())
 
         layout.addLayout(self.stackedLayout)
 
+    # --- Slider getter/callback methods referenced by pageCreator HomeDisplay ---
+
+    def getVerticalMin(self):
+        return 0
+
+    def getVeritcalMax(self):  # matches the typo in pageCreator
+        return 0
+
+    def getVerticalCurrentValue(self, value):
+        self.vtk_manager.gcodeManager._onLayerChanged(value)
+
+    def getHorizontallMin(self):  # matches the typo in pageCreator
+        return 0
+
+    def getHorizontalMax(self):
+        return 0
+
+    def getHorizontalCurrentValue(self, value):
+        self.vtk_manager.gcodeManager._onLineChanged(value)
+
+    # -------------------------------------------------------------------------
+
     def changeCurrentPrinter(self, attr, value):
-        print(f"Changing printer setting: {attr} to value: {value}")
+        #print(f"Changing printer setting: {attr} to value: {value}")
         setattr(self.currentPrinter, attr, value)
 
+
+    def saveToFile(self):
+        name = QFileDialog.getSaveFileName(self, 'Save Gcode', '', "Gcode files (*.gcode)")
 
     def exportGcode(self):
         print("Exporting Gcode with settings:")
@@ -85,20 +95,47 @@ class HogforgeApplication(WindowManager):
         print(f"Layer Height: {self.currentPrinter.layerHeight}")
         self.vtk_manager.getScene()
         infillNormalized = float(self.currentPrinter.infill) / 100.0
-        name = QFileDialog.getSaveFileName(self, 'Save Gcode', '', "Gcode files (*.gcode)")
-        
-        if name[0]:  # Check if a file was selected
-            self.progressBar.setValue(0)  # Reset progress bar
-            self.thread = QThread()
-            self.worker = SlicerWorker(name[0], float(self.currentPrinter.layerHeight), infillNormalized, self.currentPrinter.power, self.currentPrinter.speed, self.exportGcodeButton)
-            self.worker.moveToThread(self.thread)
-            self.worker.progress.connect(self.progressBar.setValue)
-            self.worker.gcodeReady.connect(self.vtk_manager.displayGcode)
-            self.thread.started.connect(self.worker.run)
-            self.worker.finished.connect(self.thread.quit)
-            self.worker.finished.connect(self.worker.deleteLater)
-            self.thread.finished.connect(self.thread.deleteLater)
-            self.thread.start()
+
+        self.progressBar.setValue(0)  # Reset progress bar
+        self.thread = QThread()
+        self.worker = SlicerWorker('enviroment.gcode', float(self.currentPrinter.layerHeight), infillNormalized, self.currentPrinter.power, self.currentPrinter.speed, self.exportGcodeButton, self.currentPrinter.bottomLayers, self.currentPrinter.topLayers)
+        self.worker.moveToThread(self.thread)
+        self.worker.progress.connect(self.progressBar.setValue)
+        self.worker.gcodeReady.connect(self.showGcodeEnvironment)
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.start()
+
+    def showGcodeEnvironment(self):
+        layers_info = self.vtk_manager.displayGcode(self.currentPrinter)
+        max_layer = max(len(layers_info) - 1, 0)
+        last_layer_lines = layers_info[-1] if layers_info else 0
+
+        # Retrieve the slider widgets stored by pageCreation via setattr
+        layer_slider = self.getVerticalCurrentValue    # QSlider (vertical, layers)
+        line_slider = self.getHorizontalCurrentValue  # QSlider (horizontal, lines)
+
+        layer_slider.blockSignals(True)
+        layer_slider.setMaximum(max_layer)
+        layer_slider.setValue(max_layer)
+        layer_slider.blockSignals(False)
+
+        line_slider.blockSignals(True)
+        line_slider.setMaximum(last_layer_lines)
+        line_slider.setValue(last_layer_lines)
+        line_slider.blockSignals(False)
+
+        # Inject slider refs into gcodeManager so _onLayerChanged/_onLineChanged work
+        self.vtk_manager.gcodeManager.setSliders(layer_slider, line_slider)
+
+        layer_slider.show()
+        line_slider.show()
+
+        self.updatePages()
+        self.vtk_manager.gcodeManager._updateGcodeDisplay(max_layer, last_layer_lines)
+
 
 
     def savePrinter(self):
@@ -190,7 +227,7 @@ class SlicerWorker(QObject):
     progress = pyqtSignal(int)
     gcodeReady = pyqtSignal(str)
 
-    def __init__(self, filename, layerThickness, infillPercent,power,speed, exportButton):
+    def __init__(self, filename, layerThickness, infillPercent, power, speed, exportButton, bottomLayers=3, topLayers=3):
         super().__init__()
         self.filename = filename
         self.layerThickness = layerThickness
@@ -198,9 +235,12 @@ class SlicerWorker(QObject):
         self.power = power
         self.speed = speed
         self.exportButton = exportButton
+        self.bottomLayers = bottomLayers
+        self.topLayers = topLayers
+
     def run(self):
-        sliceItem(self.filename, self.layerThickness, self.infillPercent, self.power, self.speed, progressCallback=self.progress.emit)
+        sliceItem(self.filename, self.layerThickness, self.infillPercent, self.power, self.speed, self.bottomLayers, self.topLayers, progressCallback=self.progress.emit)
         self.exportButton.setEnabled(True)  # Re-enable the export button after slicing is done
-        gcode_path = self.filename[:-3] + "gcode"
+        gcode_path =   self.filename
         self.gcodeReady.emit(gcode_path)
         self.finished.emit()

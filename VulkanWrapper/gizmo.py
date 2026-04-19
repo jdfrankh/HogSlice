@@ -163,7 +163,7 @@ class Gizmo(Actor):
         #    print("No gizmo axis selected")
             return
 
-        print(f"Selected Axis: {self.gizmoSelectedAxis}")
+        #print(f"Selected Axis: {self.gizmoSelectedAxis}")
 
         if moveType == "SetFlat":
             if self.gizmoSelectedAxis not in self.owner.surfaceNormals:

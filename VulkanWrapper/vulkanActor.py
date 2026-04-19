@@ -57,7 +57,7 @@ class Actor:
         
         #print("Scanning for actor with ID:", self.id, "and type:", self.actorType)
         if(actor):
-            print("Adding Actor:", self.id, "of type:", self.actorType)
+           # print("Adding Actor:", self.id, "of type:", self.actorType)
 
             self.addActor()
             #self.renderer.AddActor(self.actor)
@@ -68,12 +68,12 @@ class Actor:
 
     def addActor(self):
         if(self.actor):
-            print("Adding Actor:", self.id, "of type:", self.actorType)
+         #   print("Adding Actor:", self.id, "of type:", self.actorType)
             self.renderer.AddActor(self.actor)
     
 
     def getActor(self):
-        print("Getting Actor:", self.id, "of type:", self.actorType)
+      #  print("Getting Actor:", self.id, "of type:", self.actorType)
         return self.actor
 
     def ifActorClicked(self, keyActor):
@@ -82,20 +82,22 @@ class Actor:
         else:
             return False
 
-
+    def setOpacity(self, level):
+        if self.actor:
+            self.actor.GetProperty().SetOpacity(level)
 
     def setColor(self, color):
         self.actor.GetProperty().SetColor(color)
         
         
     def actorSelected(self, moveType):
-        print(f"Selecting Actor {self.id}")
+        #print(f"Selecting Actor {self.id}")
         self.moveType = moveType 
         self.isSelected = True
         
 
     def deselectAction(self):
-        print(f"Deselecting Actor {self.id}")
+        #print(f"Deselecting Actor {self.id}")
 
         self.isSelected = False
         

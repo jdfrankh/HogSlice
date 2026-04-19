@@ -29,6 +29,41 @@ class ActorConstants:
 
     FloorZ = 0.0
 
+class moverOverlayPositions:
+
+    OverlayScreenLocation = [
+        [0.10, 0.10, 0],
+        [0.90, 0.10, 0],
+        [0.90, 0, 0.0],
+        [0.10,0,0]
+
+    ]
+
+    TranslateButton = [200, 25 ]
+    RotateButton = [425, 25 ]
+    ScaleButton = [625, 25]
+    SetFlatButton = [850, 25]
+
+
+class GcodeInformerPositions:
+
+    #Top left to corner
+    cornerDistance = .75
+
+    OverlayScreenLocation = [
+        [1, 1, 0],
+        [cornerDistance, 1, 0],
+        [1, cornerDistance, 0.0],
+        [cornerDistance, cornerDistance ,0]
+
+    ]
+
+    WallDisplayLocation = [800, 200]
+    InfillDisplayLocation = [800, 175]
+    SupportDisplayLocation = [800, 150]
+    TotalFillDisplayLocation = [800, 125]
+    TimeToCompleteLocation = [800, 100]
+
 class BuildChamberDisplay:
     wallThickess = .1
 

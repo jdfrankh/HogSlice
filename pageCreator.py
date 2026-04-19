@@ -54,6 +54,8 @@ class DisplayBase:
 
         return listOfSettings
 
+#Instead of harf-coding. Import these profiles in using the profile too?
+
 class PrinterDisplay(DisplayBase):
 
     isHorizontal = True
@@ -114,6 +116,11 @@ class SettingsDisplay(DisplayBase):
     sweepTime = ["SETTING", "Sweep Time (ms):", 'sweepTime', [0, 10000, Printer.sweepTime, 0, 50]]
     layerDownTime = ["SETTING", "Layer Down Time (ms):", 'layerDownTime', [0, 10000, Printer.layerDownTime, 0, 50]]
 
+    topBottomLabel = ["LABEL", "== Bottom & Top Walls =="]
+    topBottomSpacing = ["SPACING", 5]
+    bottomLayers = ["SETTING", "Bottom Layers:", 'bottomLayers', [0, 50, Printer.bottomLayers, 0, 1]]
+    topLayers = ["SETTING", "Top Layers:", 'topLayers', [0, 50, Printer.topLayers, 0, 1]]
+
     finishSettingsList = ["FINISH PAGE", "New Page"]
 
 class TopBarDisplay(DisplayBase):
@@ -131,16 +138,33 @@ class HomeDisplay(DisplayBase):
 
     isHorizontal = True
 
+    # Column 1: VTK widget with horizontal (line) slider underneath
+    vtkColumn = ["CREATE PAGE", 0]  # VBox
     vtkView = ["VTK"]
+    hSlider = ["SLIDER", 1, ["getHorizontallMin", "getHorizontalMax", "getHorizontalCurrentValue"]]
+    vtkColumnFinish = ["FINISH PAGE", "VTK Column"]
+
+    # Column 2: vertical (layer) slider beside the VTK column
+    vSlider = ["SLIDER", 0, ["getVerticalMin", "getVeritcalMax", "getVerticalCurrentValue"]]
+
 
     sidebarPage = ["CREATE PAGE", 0]
 
     printSettingsLabel = ["LABEL", "Print Settings"]
+
+    buttonPage = ["CREATE PAGE", 1]
+    
+    
     exportButton = ["SELFREF_BUTTON", "Export Gcode", "exportGcode", "exportGcodeButton"]
+    saveButton = ["SELFREF_BUTTON", "Save Gcode", "saveToFile", "saveToFileButton"]
+
+    buttonPageFinish = ["FINISH PAGE", "ButtonPage"]
+
+    
+
     progressBar = ["PROGRESS", "", "progressBar", [0, 100]]
 
     sidebarSpacing = ["SPACING", 10]
-
     materialRow = ["COMBOBOX", "Material Settings:", "material", ["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"]]
     powerRow = ["SETTING", "Power:", "power", [1, 100, Printer.power]]
     speedRow = ["SETTING", "Speed mm/min:", "speed", [1, 10000, Printer.speed]]

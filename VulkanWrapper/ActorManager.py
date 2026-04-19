@@ -7,12 +7,15 @@ from .BuildChamber  import BuildChamber
 from .STLActor import STLActor
 from .origin import Origin
 from .eventManager import EventManager
-from .leffOverlay import leftOverlay
+
 
 from constants import BuildChamberDisplay
 import math
 
-
+# Actor manager should handle all rendering requests...
+#color change can be imported,
+#Event change is near useless I think to import
+#Picker needs to be imported
 class ActorManager:
 
     def exportAllActorsToSTL(self):
@@ -114,7 +117,7 @@ class ActorManager:
     def printActors(self, returnType = ActorType.STL):
         temp = []
         for actor in self.Actors:
-            print("Actor ID:", actor.id, "Type:", actor.actorType, "Selected:", actor.isSelected)
+            #print("Actor ID:", actor.id, "Type:", actor.actorType, "Selected:", actor.isSelected)
             if actor.actorType == returnType:
                 temp.append(actor.id)
         return temp
@@ -208,8 +211,17 @@ class ActorManager:
             for actor in self.Actors:
                 actor.moveAction()
 
-          
+        return self.moveActionFlag
 
+          
+    def setActorOpacity(self, level):
+        for actor in self.Actors:
+            if actor.actorType != ActorType.BUILD_CHAMBER and actor.actorType != ActorType.ORIGIN:
+                actor.setOpacity(level)
+
+        self.vtkWidget.GetRenderWindow().Render()
+
+    
 
     def determineIfOutOfBounds(self, actor):
 

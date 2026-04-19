@@ -100,6 +100,7 @@ class Slice:
         self.isSurface = isSurface_
         self.support = list()
         self.infill = list()
+        self.topBottom = list()
 
 # given an stl file of standard format,
 # returns a list of the triangles
@@ -703,9 +704,20 @@ def generateSupports(triangles, layerThickness):
 
     return supportSlices
 
+# given a list of slices and per-print top/bottom layer counts,
+# fills the topBottom list on the relevant slices with solid infill lines
+def generateTopBottomLayers(slices, numBottom, numTop):
+    numBottom = int(numBottom)
+    numTop = int(numTop)
+    bottom_indices = range(min(numBottom, len(slices)))
+    top_indices = range(max(0, len(slices) - numTop), len(slices))
+    surface_indices = set(bottom_indices) | set(top_indices)
+    for i in surface_indices:
+        slices[i].topBottom = infill(slices[i].perimeter, 1.0)
+    return slices
+
+
 # given a list of slices with the list of line segments
-# to draw per slice, as a tuple with if the slice is a
-# bottom or top, and a filename,
 # write the G code to the given file 
 def writeGcode(slices,filename, progressCallback=None):
 
@@ -718,7 +730,7 @@ def writeGcode(slices,filename, progressCallback=None):
 
 
     extrudeRate = 0.05
-    f = open(filename[:-3] + "gcode",'w')
+    f = open(filename,'w')
 
     #preamble
     f.write(";Start GCode\n")
@@ -752,6 +764,14 @@ def writeGcode(slices,filename, progressCallback=None):
             E += dist*extrudeRate
             f.write("G1 F900 X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
 
+        if len(s.topBottom) > 0:
+            f.write(";top_bottom\n")
+        for l in s.topBottom:
+            f.write("G0 F2700 X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
+            dist = math.sqrt(pow(l.p1.x-l.p0.x,2) + pow(l.p1.y-l.p0.y,2))
+            E += dist*extrudeRate
+            f.write("G1 F900 X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
+
         if len(s.support) > 0:
             f.write(";support\n")
         for l in s.support:
@@ -780,18 +800,16 @@ def writeGcode(slices,filename, progressCallback=None):
     f.write("M140 S0\n")
     f.write("G91\n")
     f.write("G1 E-1 F300\n")
-    f.write("G1 Z+0.5 E-5 X-20 Y-20 F2v700\n")
+    f.write("G1 Z+0.5 E-5 X-20 Y-20 F2700\n")
     f.write("G28 X0 Y0\n")
     f.write("M84\n")
     f.write("G90\n")
 
-def sliceItem(filename, layerThickness, infillPercent,power,speed, progressCallback=None):
+
+def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayers=3, topLayers=3, progressCallback=None):
     print("Slicing "+filename+" with layer thickness "+str(layerThickness)+" and infill percent "+str(infillPercent))
     try:
         triangles = fileToTriangles('enviroment.stl')
-
-        if(infillPercent == 0):
-            infillPercent = 0.01
         slices_ = separateSlices(triangles, layerThickness)
         supportSlices = generateSupports(triangles, layerThickness)
 
@@ -800,20 +818,25 @@ def sliceItem(filename, layerThickness, infillPercent,power,speed, progressCallb
         for i, s in enumerate(slices_):
             slices += [cleanPerimeter(s)]
             if progressCallback:
-                progressCallback(int((i + 1) / len(slices_) * 30))
+                progressCallback(int((i + 1) / len(slices_) * 60))
 
-        for i, s in enumerate(slices):
-            if s.isSurface:
-                s.infill = infill(s.perimeter, 1)
-            else:
-                s.infill = infill(s.perimeter, infillPercent)
-            if progressCallback:
-                progressCallback(30 + int((i + 1) / len(slices) * 30))
+        print("Finished Creating Walls...")
+        if(infillPercent != 0):
+            for i, s in enumerate(slices):
+                if s.isSurface:
+                    s.infill = infill(s.perimeter, 1)
+                else:
+                    s.infill = infill(s.perimeter, infillPercent)
+                if progressCallback:
+                    progressCallback(60 + int((i + 1) / len(slices) * 60))
 
+        print("Infill Complete")
+        generateTopBottomLayers(slices, bottomLayers, topLayers)
+        print("Top/Bottom Layers Complete")
         for shape in supportSlices:
             for s in range(len(shape)):
                 slices[s].support += infill(shape[s].perimeter,supportInfill)
-
+        print("Writing Gcode to File...")
         writeGcode(slices, filename, progressCallback=progressCallback)
         print("Gcode writing complete")
     except Exception as e:

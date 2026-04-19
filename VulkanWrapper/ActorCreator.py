@@ -31,7 +31,7 @@ class ActorCreator:
         """
 
         if(wallThickness is None):
-            print("No wall thickness provided, using default value from BuildChamberDisplay")
+            #print("No wall thickness provided, using default value from BuildChamberDisplay")
             wallThickness = BuildChamberDisplay.wallThickess
 
 
@@ -43,7 +43,7 @@ class ActorCreator:
             wallThickness *= 25.4
         min_dim = min(width, height, depth)
         if wallThickness <= 0 or wallThickness   * 2 >= min_dim:
-            print(f"Invalid wall thickness: {wallThickness}. Must be positive and less than half of the smallest dimension ({min_dim}).")
+            #print(f"Invalid wall thickness: {wallThickness}. Must be positive and less than half of the smallest dimension ({min_dim}).")
             raise ValueError("Wall thickness must be positive and less than half of the smallest dimension.")
 
         #Do some math to create the chamber

@@ -42,6 +42,8 @@ class Printer:
     numWalls = 2
     supportInfill = 50.0
     extrudeWidth = 0.71
+    bottomLayers = 3
+    topLayers = 3
 
 
     offsetx = 0
@@ -118,7 +120,7 @@ class Printer:
         )
         for key in ["sweepTime", "layerDownTime", "infill", "power", "speed",
                      "layerHeight", "laserWidth", "material", "numWalls",
-                     "supportInfill", "extrudeWidth"]:
+                     "supportInfill", "extrudeWidth", "bottomLayers", "topLayers"]:
             if key in data:
                 setattr(printer, key, data[key])
         if "offsets" in data:

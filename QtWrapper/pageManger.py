@@ -20,6 +20,7 @@ class QType(Enum):
     LIST = 6
     PROGRESS = 7
     SPACING = 8
+    SLIDER = 9
 
 
 
@@ -47,11 +48,11 @@ class PageManager:
         for element in self.elements:
             
             if element[3] != None:
-                print("Updating element: ", element[0])
+                #print("Updating element: ", element[0])
                 if(element[2] == QType.LIST and element[3] == 1): # element[3] = 1 is to set update function to update with element array
                     # Clear the list and repopulate it with the updated items
 
-                    print("Updating list widget: ", element[4])
+                #    print("Updating list widget: ", element[4])
                     element[0].clear()
                     #element[0].addItems(element[3])
                     element[0].addItems(updateItems)
@@ -104,6 +105,24 @@ class PageManager:
         elif elementType == QType.SPACING:
             self.layout.addSpacing(listElements if listElements else 10)
             item = None
+
+        elif elementType == QType.SLIDER:
+            orientation = Qt.Horizontal if layoutType == 1 else Qt.Vertical
+            item = QSlider(orientation)
+            item.setMinimum(listElements[0])
+            item.setMaximum(listElements[1])
+            if len(listElements) > 2:
+                item.setValue(listElements[2])
+            if len(listElements) > 3:
+                item.setSingleStep(listElements[3])
+            if function:
+                item.valueChanged.connect(function)
+            if layoutType == 1:  # horizontal slider expands width
+                item.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            else:                 # vertical slider expands height
+                item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+            self.layout.addWidget(item)
+
 
         else:
             return

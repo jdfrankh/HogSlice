@@ -65,14 +65,14 @@ class STLActor(Actor):
         if(gizmo): # If there is a gizmo, check if it was selected
             
             if(gizmo.isSelected):
-                print("STL Gizmo Selected:", self.id)
+                #print("STL Gizmo Selected:", self.id)
                 gizmo.actorSelected(moveType)
 
                 return
 
         if(self.isSelected):
         #
-            print("STL Actor Selecterd:", self.id)
+            #print("STL Actor Selecterd:", self.id)
         #if(not gizmo): # No gizmo actor - means move cannot be made
 
             self.actor.GetProperty().SetColor(self.selectColor)
