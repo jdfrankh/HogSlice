@@ -19,7 +19,7 @@ import threading
 import sys
 
 
-from constants import WindowSettings
+from constants import WindowSettings, AppTheme
 from pageCreator import DisplayBase, ToolBarDisplay
 
 #TODO:
@@ -53,6 +53,7 @@ class WindowManager(QMainWindow):
 
         self.setWindowTitle(WindowSettings.WindowTitle)
         self.resize(*WindowSettings.windowLayout)
+        self.setStyleSheet(AppTheme.stylesheet())
 
         self.createMenuBar()
         
@@ -223,10 +224,12 @@ class WindowManager(QMainWindow):
                     setattr(self, setting[DisplayBase.LISTELEMENT], item)
 
             elif setting[DisplayBase.QTTYPE] == "UPDATE_LIST":
-                row.createElement(elementType=QType.LIST, layoutType=0,
+                item = row.createElement(elementType=QType.LIST, layoutType=0,
                     function=lambda value, s=setting: self.vtk_manager.selectActorById(value.text()),
                     displayText=setting[DisplayBase.SHOWNAME], listElements=setting[DisplayBase.LISTELEMENT],
                     updateFunction=1)
+                if item is not None:
+                    item.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
                 self.PageList.append(row)
 
             elif setting[DisplayBase.QTTYPE] == "VTK":

@@ -62,7 +62,11 @@ class PageManager:
     def createElement(self,elementType, layoutType=-1, function=None, displayText="", listElements = [] , updateFunction = None, scaleFuction = [QSizePolicy.Fixed, QSizePolicy.Fixed]):
         if elementType == QType.BUTTON:
             item = QPushButton(displayText)
-            item.setSizePolicy(scaleFuction[0], scaleFuction[1])
+            # If the parent layout is horizontal, use Minimum for horizontal policy so stretch works
+            if isinstance(self.layout, QHBoxLayout):
+                item.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+            else:
+                item.setSizePolicy(scaleFuction[0], scaleFuction[1])
             item.clicked.connect(function)
             self.layout.addWidget(item)
         elif elementType == QType.BOX:
@@ -118,7 +122,7 @@ class PageManager:
             item.setMinimum(listElements[0])
             item.setMaximum(listElements[1])
             self.layout.addWidget(item)
-            item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            item.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
  
         elif elementType == QType.SPACING:
             self.layout.addSpacing(listElements if listElements else 10)

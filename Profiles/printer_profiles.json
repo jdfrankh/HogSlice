@@ -38,7 +38,7 @@
                 "laserWattage": 100,
                 "focalLens": 140
             },
-            "power": 50.0,
+            "power": 49.0,
             "speed": 180.0,
             "infill": 90.0,
             "layerHeight": "0.05",

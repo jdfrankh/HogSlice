@@ -133,6 +133,7 @@ class PrinterDisplay(DisplayBase):
         rows.extend([
             ["STRETCH", 1],
             ["FINISH PAGE", "PrinterRows"],
+            ["STRETCH", 1],
             ["FINISH PAGE", "PrinterRoot"],
         ])
 
@@ -178,6 +179,7 @@ class SettingsDisplay(DisplayBase):
         rows.extend([
             ["STRETCH", 1],
             ["FINISH PAGE", "SettingsRows"],
+            ["STRETCH", 1],
             ["FINISH PAGE", "SettingsRoot"],
         ])
 
@@ -187,12 +189,15 @@ class TopBarDisplay(DisplayBase):
 
     isHorizontal = True
 
-    homeButton = ["BUTTON", "Home", "goHome"]
-    spacing1 = ["SPACING", 20]
-    settingsButton = ["BUTTON", "Settings", "goSettings"]
-    spacing2 = ["SPACING", 20]
-    printerButton = ["BUTTON", "Printer", "goPrinter"]
-    spacing3 = ["SPACING", 5]
+    def getAllSettings(self):
+        return [
+            ["BUTTON", "Home", "goHome"],
+            ["SPACING", 3],
+            ["BUTTON", "Settings", "goSettings"],
+            ["SPACING", 3],
+            ["BUTTON", "Printer", "goPrinter"],
+            ["STRETCH", 1],
+        ]
 
 class HomeDisplay(DisplayBase):
 
