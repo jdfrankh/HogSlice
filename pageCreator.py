@@ -1,4 +1,6 @@
 from VulkanWrapper.Printer import Printer
+from VulkanWrapper.Settings import Settings
+from VulkanWrapper.ConfigProfileBase import ConfigProfileBase
 from QtWrapper.pageManger import QType
 
 #Page creator is designed to be specific to hogsclice, and is a way
@@ -10,7 +12,12 @@ class ToolBarDisplay:
     File = [
         ["Open", "openFile"],
         ["Separator"],
-        ["Import Printer Profile", "importPrinter"]
+        ["Import Printer Profile", "importPrinter"],
+        ["Separator"],
+        ["Import Settings", "importSettings"],
+        ["Export Settings", "exportSettings"],
+        ["Save Settings", "saveSettings"],
+        ["Reset To Defaults", "resetToDefaults"]
 
     ]
 
@@ -56,72 +63,125 @@ class DisplayBase:
 
 #Instead of harf-coding. Import these profiles in using the profile too?
 
+class _PrinterSettingsProfile(ConfigProfileBase):
+    """Metadata-only class that defines the Printer page settings groups."""
+    def __init__(self):
+        super().__init__()
+        self.add_group("Bed", [
+            self.make_setting("Bed Width (mm):", "bedWidth", [1, 1000, Printer.bedWidth, 1, 0.1]),
+            self.make_setting("Bed Height (mm):", "bedHeight", [1, 1000, Printer.bedHeight, 1, 0.1]),
+            self.make_setting("Bed Depth (mm):", "bedDepth", [1, 1000, Printer.bedDepth, 1, 0.1]),
+        ])
+        self.add_group("Position", [
+            self.make_setting("Offset X (mm):", "offsetx", [0, 1000, Printer.offsetx, 1, 0.1]),
+            self.make_setting("Offset Y (mm):", "offsety", [0, 1000, Printer.offsety, 1, 0.1]),
+        ])
+        self.add_group("Laser", [
+            self.make_setting("Laser Power (W):", "power", [1, 1000, Printer.power, 1, 0.1]),
+            self.make_setting("Focal Length (mm):", "focalLength", [1, 1000, Printer.focalLength, 1, 0.1]),
+        ])
+
+
 class PrinterDisplay(DisplayBase):
 
     isHorizontal = True
     scrollable = True
 
-    generalBarPage = ["CREATE PAGE",  0]
+    def __init__(self, printerNames=None, selectedPrinter=None, selectedGroup=None):
+        names = list(printerNames) if printerNames else ["Hogforge V1", "Hogforge V2"]
+        self.selectedPrinter = selectedPrinter if selectedPrinter in names else (names[0] if names else "")
+        self.printerNames = names
+        self._profile = _PrinterSettingsProfile()
+        groups = self._profile.get_group_names()
+        if selectedGroup in groups:
+            self.selectedGroup = selectedGroup
+        elif groups:
+            self.selectedGroup = groups[0]
+        else:
+            self.selectedGroup = ""
 
-    generalBar = ["LIST", "Printer Settings", "printerList", ["Printer 1", "Printer 2"], [100]]
+    def getAllSettings(self):
+        groups = self._profile.get_group_names()
+        if self.selectedGroup not in groups and groups:
+            self.selectedGroup = groups[0]
 
-    generalBarFinishPage = ["FINISH PAGE", "New Page"]
+        group_choices = [self.selectedGroup] + [g for g in groups if g != self.selectedGroup]
+        printer_choices = [self.selectedPrinter] + [p for p in self.printerNames if p != self.selectedPrinter]
 
-    settingsList = ["CREATE PAGE", 0]
+        rows = [
+            ["CREATE PAGE", 1],
+            ["CREATE PAGE", 0],
+            ["LABEL", "Printer Profiles"],
+            ["SPACING", 8],
+            ["LIST", "Printer Settings", "selectPrinterProfile", printer_choices],
+            ["SPACING", 10],
+            ["BUTTON", "Save Settings", "savePrinter"],
+            ["BUTTON", "Import Settings", "importPrinter"],
+            ["SPACING", 20],
+            ["LABEL", "Settings Groups"],
+            ["SPACING", 8],
+            ["LIST", "", "selectPrinterGroup", group_choices],
+            ["FINISH PAGE", "PrinterSelector"],
+            ["SPACING", 25],
+            ["CREATE PAGE", 0],
+            ["LABEL", f"{self.selectedGroup} Settings"],
+            ["SPACING", 10],
+        ]
 
-    bedWRow = ["SETTING", "Bed Width (mm)",'bedWidth', [1,1000, Printer.bedWidth, 1, .1]]
-    bedHRow = ["SETTING", "Bed Height (mm)", 'bedHeight', [1,1000, Printer.bedHeight, 1, .1]]
-    bedDRow = ["SETTING", "Bed Depth (mm)", 'bedDepth', [1,1000, Printer.bedDepth, 1, .1]]
+        rows.extend(self._profile.build_setting_rows(self.selectedGroup))
 
-    
-    printText = ["LABEL", "===================="]
+        rows.extend([
+            ["STRETCH", 1],
+            ["FINISH PAGE", "PrinterRows"],
+            ["FINISH PAGE", "PrinterRoot"],
+        ])
 
-    offsetX = ["SETTING", "Offsets In X (mm)", 'offsetx', [0,1000, Printer.offsetx, 1, .1]]
-    offsetY = ["SETTING", "Offsets In Y (mm)", 'offsety', [0,1000, Printer.offsety, 1, .1]]
-
-    laserPower = ["SETTING","Laser Power (W)", 'power', [1,1000, Printer.power, 1, .1]]
-    focalLength = ["SETTING", "Focal Length (mm)", 'focalLength', [1,1000, Printer.focalLength, 1, .1]]
-
-    spacing1 = ["SPACING", 20]
-
-    newPage2  = ["CREATE PAGE",  1] # False for horizontal, True for veritcal 
-
-    printSettings  = ["BUTTON", "Print Settings", "savePrinter"]
-    importSettings  = ["BUTTON", "Import Settings", "importPrinter"]
-
-    finishPage = ["FINISH PAGE", "New Page"]
-
-    finishSettingsList = ["FINISH PAGE", "New Page"]
+        return rows
 
 
 class SettingsDisplay(DisplayBase):
     isHorizontal = True
     scrollable = True
 
-    generalBarPage = ["CREATE PAGE",  0]
+    def __init__(self, selectedGroup=None):
+        self.settingsProfile = Settings()
+        groups = self.settingsProfile.get_group_names()
+        if selectedGroup in groups:
+            self.selectedGroup = selectedGroup
+        elif groups:
+            self.selectedGroup = groups[0]
+        else:
+            self.selectedGroup = ""
 
-    generalBar = ["LIST", "Printer Settings", "printerList", ["General"], [100]]
+    def getAllSettings(self):
+        groups = self.settingsProfile.get_group_names()
+        if self.selectedGroup not in groups and groups:
+            self.selectedGroup = groups[0]
 
-    generalBarFinishPage = ["FINISH PAGE", "New Page"]
+        group_choices = [self.selectedGroup] + [g for g in groups if g != self.selectedGroup]
 
-    settingsList = ["CREATE PAGE", 0]
+        rows = [
+            ["CREATE PAGE", 1],
+            ["CREATE PAGE", 0],
+            ["LABEL", "Settings Groups"],
+            ["SPACING", 8],
+            ["LIST", "", "selectSettingsGroup", group_choices],
+            ["FINISH PAGE", "SettingsSelector"],
+            ["SPACING", 25],
+            ["CREATE PAGE", 0],
+            ["LABEL", f"{self.selectedGroup} Settings"],
+            ["SPACING", 10],
+        ]
 
-    settingsLabel = ["LABEL", "General Settings"]
-    settingsSpacing = ["SPACING", 10]
+        rows.extend(self.settingsProfile.build_setting_rows(self.selectedGroup))
 
-    numWalls = ["SETTING", "Number of Walls:", 'numWalls', [1, 200, Printer.numWalls, 0, 1]]
-    supportInfill = ["SETTING", "Support Infill %:", 'supportInfill', [0, 100, Printer.supportInfill, 1, 5.0]]
-    extrudeWidth = ["SETTING", "Extrude Width (mm):", 'extrudeWidth', [0.01, 5.0, Printer.extrudeWidth, 2, 0.01]]
-    laserWidth = ["SETTING", "Laser Width (mm):", 'laserWidth', [0.001, 1.0, Printer.laserWidth, 3, 0.001]]
-    sweepTime = ["SETTING", "Sweep Time (ms):", 'sweepTime', [0, 10000, Printer.sweepTime, 0, 50]]
-    layerDownTime = ["SETTING", "Layer Down Time (ms):", 'layerDownTime', [0, 10000, Printer.layerDownTime, 0, 50]]
+        rows.extend([
+            ["STRETCH", 1],
+            ["FINISH PAGE", "SettingsRows"],
+            ["FINISH PAGE", "SettingsRoot"],
+        ])
 
-    topBottomLabel = ["LABEL", "== Bottom & Top Walls =="]
-    topBottomSpacing = ["SPACING", 5]
-    bottomLayers = ["SETTING", "Bottom Layers:", 'bottomLayers', [0, 50, Printer.bottomLayers, 0, 1]]
-    topLayers = ["SETTING", "Top Layers:", 'topLayers', [0, 50, Printer.topLayers, 0, 1]]
-
-    finishSettingsList = ["FINISH PAGE", "New Page"]
+        return rows
 
 class TopBarDisplay(DisplayBase):
 
@@ -138,42 +198,77 @@ class HomeDisplay(DisplayBase):
 
     isHorizontal = True
 
-    # Column 1: VTK widget with horizontal (line) slider underneath
-    vtkColumn = ["CREATE PAGE", 0]  # VBox
-    vtkView = ["VTK"]
-    hSlider = ["SLIDER", 1, ["getHorizontallMin", "getHorizontalMax", "getHorizontalCurrentValue"]]
-    vtkColumnFinish = ["FINISH PAGE", "VTK Column"]
+    def __init__(self, selectedPrinterName=""):
+        self.selectedPrinterName = selectedPrinterName
 
-    # Column 2: vertical (layer) slider beside the VTK column
-    vSlider = ["SLIDER", 0, ["getVerticalMin", "getVeritcalMax", "getVerticalCurrentValue"]]
+    def getAllSettings(self):
+        selected_printer_text = self.selectedPrinterName if self.selectedPrinterName else "No Printer Selected"
+
+        return [
+            ["CREATE PAGE", 0],
+            ["FIXED_WIDTH", 360],
+            ["LABEL", "Print Settings"],
+            ["LABEL", f"Selected Printer: {selected_printer_text}"],
+            ["CREATE PAGE", 1],
+            ["SELFREF_BUTTON", "Export Gcode", "exportGcode", "exportGcodeButton"],
+            ["SELFREF_BUTTON", "Save Gcode", "saveToFile", "saveToFileButton"],
+            ["FINISH PAGE", "ButtonPage"],
+            ["PROGRESS", "", "progressBar", [0, 100]],
+            ["SPACING", 10],
+            ["COMBOBOX", "Material Settings:", "material", ["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"]],
+            ["SETTING", "Power:", "power", [1, 100, Printer.power]],
+            ["SETTING", "Speed mm/min:", "speed", [1, 10000, Printer.speed]],
+            ["SETTING", "Infill:", "infill", [0, 100, Printer.infill]],
+            ["COMBOBOX", "Layer Height mm:", "layerHeight", ["0.05", "0.1", "0.15", "0.2", "0.25"]],
+            ["UPDATE_LIST", "Print Queue", "selectActor", [""]],
+
+            ["CREATE PAGE", 1],
+            ["LABEL", "Position X:"],
+            ["ACTOR_SETTING", "", "setActorPosX", [-10000, 10000, 0, 2, 1], "act_pos_x"],
+            ["SPACING", 5],
+            ["LABEL", "Y:"],
+            ["ACTOR_SETTING", "", "setActorPosY", [-10000, 10000, 0, 2, 1], "act_pos_y"],
+            ["SPACING", 5],
+            ["LABEL", "Z:"],
+            ["ACTOR_SETTING", "", "setActorPosZ", [-10000, 10000, 0, 2, 1], "act_pos_z"],
+            ["FINISH PAGE", "Actor Pos Row"],
+
+            ["CREATE PAGE", 1],
+            ["LABEL", "Rotation X:"],
+            ["ACTOR_SETTING", "", "setActorRotX", [-360, 360, 0, 2, 5], "act_rot_x"],
+            ["SPACING", 5],
+            ["LABEL", "Y:"],
+            ["ACTOR_SETTING", "", "setActorRotY", [-360, 360, 0, 2, 5], "act_rot_y"],
+            ["SPACING", 5],
+            ["LABEL", "Z:"],
+            ["ACTOR_SETTING", "", "setActorRotZ", [-360, 360, 0, 2, 5], "act_rot_z"],
+            ["FINISH PAGE", "Actor Rot Row"],
+
+            ["CREATE PAGE", 1],
+            ["LABEL", "Scale X:"],
+            ["ACTOR_SETTING", "", "setActorScaleX", [0.01, 1000, 1, 2, 0.1], "act_scale_x"],
+            ["SPACING", 5],
+            ["LABEL", "Y:"],
+            ["ACTOR_SETTING", "", "setActorScaleY", [0.01, 1000, 1, 2, 0.1], "act_scale_y"],
+            ["SPACING", 5],
+            ["LABEL", "Z:"],
+            ["ACTOR_SETTING", "", "setActorScaleZ", [0.01, 1000, 1, 2, 0.1], "act_scale_z"],
+            ["SPACING", 5],
+            ["ACTOR_CHECKBOX", "Uniform Scale", "setActorUniformScale", [True], "act_uniform_scale"],
+            ["STRETCH", 1],
+            ["FINISH PAGE", "Actor Scale Row"],
 
 
-    sidebarPage = ["CREATE PAGE", 0]
+            ["STRETCH", 1],
+            ["FINISH PAGE", "Sidebar"],
+            ["SLIDER", 0, ["getVerticalMin", "getVeritcalMax", "getVerticalCurrentValue"]],
+            ["CREATE PAGE", 0],
+            ["VTK"],
+            ["SLIDER", 1, ["getHorizontallMin", "getHorizontalMax", "getHorizontalCurrentValue"]],
+            
 
-    printSettingsLabel = ["LABEL", "Print Settings"]
-
-    buttonPage = ["CREATE PAGE", 1]
-    
-    
-    exportButton = ["SELFREF_BUTTON", "Export Gcode", "exportGcode", "exportGcodeButton"]
-    saveButton = ["SELFREF_BUTTON", "Save Gcode", "saveToFile", "saveToFileButton"]
-
-    buttonPageFinish = ["FINISH PAGE", "ButtonPage"]
-
-    
-
-    progressBar = ["PROGRESS", "", "progressBar", [0, 100]]
-
-    sidebarSpacing = ["SPACING", 10]
-    materialRow = ["COMBOBOX", "Material Settings:", "material", ["M2 Steel", "M1 Steel", "316L Steel", "1080 Steel"]]
-    powerRow = ["SETTING", "Power:", "power", [1, 100, Printer.power]]
-    speedRow = ["SETTING", "Speed mm/min:", "speed", [1, 10000, Printer.speed]]
-    infillRow = ["SETTING", "Infill:", "infill", [0, 100, Printer.infill]]
-    layerHeightRow = ["COMBOBOX", "Layer Height mm:", "layerHeight", ["0.05", "0.1", "0.15", "0.2", "0.25"]]
-
-    printQueue = ["UPDATE_LIST", "Print Queue", "selectActor", [""]]
-
-    sidebarFinish = ["FINISH PAGE", "Sidebar"]
+            ["FINISH PAGE", "VTK Column"],
+        ]
 
 
 currentDisplays = [HomeDisplay(), PrinterDisplay(), SettingsDisplay()]

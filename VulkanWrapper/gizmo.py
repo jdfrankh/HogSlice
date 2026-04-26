@@ -210,7 +210,7 @@ class Gizmo(Actor):
             self.addActor()
             
         elif self.moveType == "Rotate":
-            self.owner._rotateAction(self.gizmoSelectedAxis, delta)
+            self.owner._rotateAction(self.gizmoSelectedAxis, self.gizmoStartPosition, current_pos)
         elif self.moveType == "Scale":
             self.owner._scaleAction(self.gizmoSelectedAxis, delta)
 

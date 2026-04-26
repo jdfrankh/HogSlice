@@ -126,16 +126,23 @@ class Actor:
 
     def centerObject(self, target_center=(0, 0, 0)):
 
-        # Get bounds of the actor
-        bounds = self.actor.GetBounds()
-        # Compute current center
-        current_center = [
+        # Get bounds of the raw mesh mapper
+        mapper = self.actor.GetMapper()
+        bounds = mapper.GetBounds()
+        
+        # Compute geometric center of the raw mesh
+        mesh_center = [
             (bounds[0] + bounds[1]) / 2.0,
             (bounds[2] + bounds[3]) / 2.0,
             (bounds[4] + bounds[5]) / 2.0 
         ]
-        # Compute translation vector
-        translation = [target_center[i] - current_center[i] for i in range(3)]
+        
+        # Set the VTK Origin so all rotations/scaling operate around the geometric center
+        self.actor.SetOrigin(*mesh_center)
+        
+        # Compute translation to put the object's center at the target_center
+        translation = [target_center[i] - mesh_center[i] for i in range(3)]
+        
         # Apply translation
         self.actor.SetPosition(*translation)
 
@@ -235,17 +242,34 @@ class Actor:
 
         parent.SetPosition(*pos)
 
-    def _rotateAction(self,axis, delta):
-        speed = 0.5
-        angle = delta * speed
+    def _rotateAction(self, axis, start_pos, current_pos):
+        import math
         parent = self.actor
-
+        pos = parent.GetPosition()
+        
+        # Get the object's 3D center projected to 2D screen coordinates
+        self.renderer.SetWorldPoint(pos[0], pos[1], pos[2], 1.0)
+        self.renderer.WorldToDisplay()
+        display_center = self.renderer.GetDisplayPoint()
+        
+        cx, cy = display_center[0], display_center[1]
+        
+        # Angle from center to the start click
+        angle_start = math.atan2(start_pos[1] - cy, start_pos[0] - cx)
+        # Angle from center to current mouse
+        angle_current = math.atan2(current_pos[1] - cy, current_pos[0] - cx)
+        
+        # Difference in angle (in radians), then convert to degrees
+        delta_angle = math.degrees(angle_current - angle_start)
+        
+        # Depending on the axis and camera view, we might need a coefficient. 
+        # But directly applying the screen-space angle is standard for ring dragging
         if axis == 'X':
-            parent.RotateX(angle)
+            parent.RotateX(delta_angle)
         elif axis == 'Y':
-            parent.RotateY(angle)
+            parent.RotateY(delta_angle)
         elif axis == 'Z':
-            parent.RotateZ(angle)
+            parent.RotateZ(delta_angle)
 
     def _scaleAction(self,axis, delta):
         speed = 0.005
@@ -258,11 +282,11 @@ class Actor:
             parent.SetScale(sx* factor, sy*factor, sz*factor)
         else:
 
-            if axis == 'X':
+            if axis == 'Z':
                 parent.SetScale(sx * factor, sy, sz)
-            elif axis == 'Y':
+            elif axis == 'X':
                 parent.SetScale(sx, sy * factor, sz)
-            elif axis == 'Z':
+            elif axis == 'Y':
                 parent.SetScale(sx, sy, sz * factor)
 
     def displayToWorld(self, display_x, display_y, ref_world_pos):

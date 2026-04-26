@@ -5,12 +5,80 @@ import sys
 import string
 import copy
 import struct
+import multiprocessing
+import traceback
+
+def _init_mp(_extrudeWidth, _delta, _supportInfill, _bedWidth, _triangles=None):
+    global extrudeWidth, delta, supportInfill, bedWidth, global_triangles
+    extrudeWidth = _extrudeWidth
+    delta = _delta
+    supportInfill = _supportInfill
+    bedWidth = _bedWidth
+    global_triangles = _triangles
+
+def _do_separate_and_clean(args):
+    s, b0, b1, layerThickness = args
+    currentSegment = []
+    currentSegmentSurface = False
+    
+    for triangle in global_triangles:
+        point1 = intersectSlice(Line(p0_=triangle.p0, p1_=triangle.p1), s)
+        point2 = intersectSlice(Line(p0_=triangle.p1, p1_=triangle.p2), s)
+        point3 = intersectSlice(Line(p0_=triangle.p2, p1_=triangle.p0), s)
+
+        points_ = list(set([point1, point2, point3]))
+        points = []
+
+        for point in points_:
+            if point is None:
+                points_.remove(None)
+                break
+        
+        for i in range(0,len(points_)):
+            j = i+1
+            unique = True
+            while j < len(points_):
+                if points_[i].equals(points_[j]):
+                    unique = False
+                j+=1
+            if unique:
+                points.insert(0,copy.deepcopy(points_[i]))
+
+        if s <= (b0+layerThickness) or s >= (b1-layerThickness):
+            currentSegmentSurface = True
+
+        if len(points) == 2:
+            currentSegment.append(Line(points[0], points[1]))
+        elif len(points) == 3:
+            segment1 = Line(points[0], points[1])
+            segment2 = Line(points[1], points[2])
+            segment3 = Line(points[2], points[0])
+            currentSegmentSurface = True
+            currentSegment.append(segment1)
+            currentSegment.append(segment2)
+            currentSegment.append(segment3)
+     
+    slice_obj = Slice(zValue_=s, perimeter_=currentSegment, isSurface_=currentSegmentSurface)
+    return s, cleanPerimeter(slice_obj)
+
+def _do_infill(args):
+    idx, perimeter, percent, pattern = args
+    if not isinstance(perimeter, list):
+        return idx, []
+    return idx, infill(perimeter, percent, pattern)
 
 #printer specific constants, should be suplied as args
 bedWidth = 150.0#mm
 extrudeWidth = 0.71#mm
 supportInfill = .5
 delta = extrudeWidth/100.0 #delta for floating point comparison
+
+
+def _to_float(value, default):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
 
 class Point:
     def __init__(self, x_, y_, z_):
@@ -101,6 +169,7 @@ class Slice:
         self.support = list()
         self.infill = list()
         self.topBottom = list()
+        self.sideWalls = list()
 
 # given an stl file of standard format,
 # returns a list of the triangles
@@ -325,30 +394,203 @@ def intersection(L1,L2):
     except:
         return None
 
+def isInsidePolygon(point, perimeter, max_x, delta, Z):
+    ray = Line(Point(point.x, point.y + 0.00137, Z), Point(max_x + 1000, point.y + 0.00137, Z))
+    pt_inters = []
+    for l in perimeter:
+        sect = intersection(l, ray)
+        if sect is not None:
+            newHit = True
+            for pt in pt_inters:
+                if math.hypot(pt.x-sect.x, pt.y-sect.y) < delta:
+                    newHit = False
+                    break
+            if newHit:
+                pt_inters.append(sect)
+    return len(pt_inters) % 2 != 0
+
 #given a list of lines that make a manifold perimeter on a slice,
 #and a percentage of space that should be infill,
 #returns a list of infill lines (grid pattern) for that slice
 #assumes print bed area is a square
-def infill(perimeter,percent):
+def infill(perimeter, percent, pattern="Lines"):
 
-    assert (percent >= 0)
-    assert (percent <= 1)
+    percent = min(1.0, max(0.0, float(percent)))
 
     if (len(perimeter) == 0):
         return []
     Z = perimeter[0].p0.z #should be the same across all lines
 
-    numLines = int(round((bedWidth*percent)/extrudeWidth))
+    # Build infill against the current slice footprint rather than a fixed bed window.
+    xs = []
+    ys = []
+    for line in perimeter:
+        xs.extend([line.p0.x, line.p1.x])
+        ys.extend([line.p0.y, line.p1.y])
 
-    gap = bedWidth/numLines
+    min_x = min(xs)
+    max_x = max(xs)
+    min_y = min(ys)
+    max_y = max(ys)
+
+    width = max(max_x - min_x, extrudeWidth)
+    height = max(max_y - min_y, extrudeWidth)
+
+    # Keep density behavior tied to part size (with a minimum of one line).
+    target_span = max(width, height)
+    numLines = max(1, int(round((target_span * percent) / extrudeWidth)))
+
+    gap = width / numLines
     infill = []
 
-    #vertical lines
-    for x in range(numLines):
+    if pattern == "Radial":
+        center_x = (min_x + max_x) / 2
+        center_y = (min_y + max_y) / 2
+        numLines = max(2, int(round((360 * percent) / 5))) # arbitrary density factor
+        # radial lines
+        for r in range(numLines):
+            # Spanning line completely across the object
+            angle = math.radians(r * (180 / numLines))
+            length = target_span * 2
+            x_start = center_x - math.cos(angle) * length
+            y_start = center_y - math.sin(angle) * length
+            x_end = center_x + math.cos(angle) * length
+            y_end = center_y + math.sin(angle) * length
+            
+            fullLine = Line(Point(x_start, y_start, Z), Point(x_end, y_end, Z))
+            inters = []
+            
+            for line in perimeter:
+                sect = intersection(line, fullLine)
+                if sect is not None:
+                    new = True
+                    for i in inters:
+                        if math.hypot(i.x-sect.x, i.y-sect.y) < delta:
+                            new = False
+                    if new:
+                        inters.append(sect)
+            
+            # Sort by distance from the far start point to naturally pair outside-in
+            inters.sort(key=lambda p: math.hypot(p.x-x_start, p.y-y_start))
+            
+            # Check every segment between consecutive intersections
+            for i in range(1, len(inters)):
+                newLine = Line(inters[i-1], inters[i])
+                if math.hypot(newLine.p0.x - newLine.p1.x, newLine.p0.y - newLine.p1.y) < delta:
+                    continue
+                mx = (newLine.p0.x + newLine.p1.x) / 2
+                my = (newLine.p0.y + newLine.p1.y) / 2
+                
+                # If midpoint is inside object, keep the line
+                if isInsidePolygon(Point(mx, my, Z), perimeter, max_x + target_span, delta, Z):
+                    overlap = False
+                    for l in perimeter:
+                        if lineEqual(l, newLine):
+                            overlap = True
+                            break
+                    if not overlap:
+                        infill.append(newLine)
+                        
+        return infill
+
+    elif pattern == "Honeycomb":
+        # Simple cross-hatch for now since true hex math is quite involved for a quick patch
+        hex_gap = gap * 1.5
+        # Line pattern 1 (horizontal)
+        for y in range(int(height / hex_gap) + 1):
+            y_pos = min_y + (y * hex_gap)
+            fullLine = Line(Point(min_x, y_pos, Z), Point(max_x, y_pos, Z))
+            inters = []
+            for line in perimeter:
+                sect = intersection(line, fullLine)
+                if sect is not None:
+                    new = True
+                    for i in inters:
+                        if abs(i.x - sect.x) < delta:
+                            new = False
+                    if new:
+                        inters.append(sect)
+            inters.sort(key=lambda p: p.x)
+            for i in range(1, len(inters)):
+                newLine = Line(inters[i-1], inters[i])
+                mx = (newLine.p0.x + newLine.p1.x) / 2
+                my = (newLine.p0.y + newLine.p1.y) / 2
+                if isInsidePolygon(Point(mx, my, Z), perimeter, max_x + target_span, delta, Z):
+                    overlap = False
+                    for l in perimeter:
+                        if lineEqual(l, newLine):
+                            overlap = True
+                            break
+                    if not overlap:
+                        infill.append(newLine)
+        
+        # Line pattern 2 (vertical)
+        for x in range(int(width / hex_gap) + 1):
+            x_pos = min_x + (x * hex_gap)
+            fullLine = Line(Point(x_pos, min_y, Z), Point(x_pos, max_y, Z))
+            inters = []
+            for line in perimeter:
+                sect = intersection(line, fullLine)
+                if sect is not None:
+                    new = True
+                    for i in inters:
+                        if abs(i.y - sect.y) < delta:
+                            new = False
+                    if new:
+                        inters.append(sect)
+            inters.sort(key=lambda p: p.y)
+            for i in range(1, len(inters)):
+                newLine = Line(inters[i-1], inters[i])
+                mx = (newLine.p0.x + newLine.p1.x) / 2
+                my = (newLine.p0.y + newLine.p1.y) / 2
+                if isInsidePolygon(Point(mx, my, Z), perimeter, max_x + target_span, delta, Z):
+                    overlap = False
+                    for l in perimeter:
+                        if lineEqual(l, newLine):
+                            overlap = True
+                            break
+                    if not overlap:
+                        infill.append(newLine)
+
+        # Line pattern 3 (diagonal)
+        diag_lines = max(1, int(round((target_span * percent) / hex_gap)))
+        diag_gap = target_span / diag_lines
+        for d in range(diag_lines + 1):
+            offset = d * diag_gap
+            fullLine = Line(Point(min_x, min_y + offset, Z), Point(max_x, max_y + offset, Z))
+            inters = []
+            for line in perimeter:
+                sect = intersection(line, fullLine)
+                if sect is not None:
+                    new = True
+                    for i in inters:
+                        if math.hypot(i.x-sect.x, i.y-sect.y) < delta:
+                            new = False
+                    if new:
+                        inters.append(sect)
+            inters.sort(key=lambda p: p.x)
+            for i in range(1, len(inters)):
+                newLine = Line(inters[i-1], inters[i])
+                mx = (newLine.p0.x + newLine.p1.x) / 2
+                my = (newLine.p0.y + newLine.p1.y) / 2
+                if isInsidePolygon(Point(mx, my, Z), perimeter, max_x + target_span, delta, Z):
+                    overlap = False
+                    for l in perimeter:
+                        if lineEqual(l, newLine):
+                            overlap = True
+                            break
+                    if not overlap:
+                        infill.append(newLine)
+        
+        return infill
+
+    # Default pattern: Lines (vertical lines)
+    for x in range(numLines + 1):
         
         #start with full line
 
-        fullLine = Line(Point((bedWidth/-2)+(x*gap),bedWidth/-2,Z),Point((bedWidth/-2)+(x*gap),bedWidth/2,Z))
+        x_pos = min_x + (x * gap)
+        fullLine = Line(Point(x_pos, min_y, Z), Point(x_pos, max_y, Z))
         inters = []
 
         #find intersections without repeats
@@ -497,15 +739,15 @@ def offsetPerimeter(perimeter, distance):
 
 # given the number of walls and a list of slices,
 # generates inner wall perimeters for each slice
-# numWalls includes the original perimeter (1 = no extra walls)
+# numSideWalls includes the original perimeter (1 = no extra walls)
 # returns the slices with walls added to each slice's perimeter
-def generateWalls(numWalls, slices):
+def generateWalls(numSideWalls, slices):
     for s in slices:
-        allWalls = list(s.perimeter)
-        for w in range(1, numWalls):
+        sideWalls = list()
+        for w in range(1, numSideWalls):
             wallPerimeter = offsetPerimeter(s.perimeter, extrudeWidth * w)
-            allWalls.extend(wallPerimeter)
-        s.perimeter = allWalls
+            sideWalls.extend(wallPerimeter)
+        s.sideWalls = sideWalls
     return slices
 
 
@@ -547,7 +789,7 @@ def brim(base, numOutlines, offset):
             if line.p1.y > cy:
                 line_.p1.y += offset + extrudeWidth * i
             else:
-                line_p1.y -= offset + extrudeWidth * i
+                line_.p1.y -= offset + extrudeWidth * i
             brimlines.append(line_)
     
     return brimlines
@@ -584,9 +826,9 @@ def raft(slices, numLayers, offset, infill, layerThickness):
     ylen = y - y_
     area  =  xlen * ylen
     totalArea = area * infill
-    xlines = floor(totalArea / (extrudeWidth * xlen))
+    xlines = math.floor(totalArea / (extrudeWidth * xlen))
     xgap = (ylen - extrudeWidth * xlines) / xlines
-    ylines = floor(totalArea / (extrudeWidth * ylen))
+    ylines = math.floor(totalArea / (extrudeWidth * ylen))
     ygap = (xlen - extrudeWidth * ylines) / ylines
     # generate layers
     i = 0
@@ -679,19 +921,32 @@ def generateSupportShape(triangle, bottomZ):
 
     return newShape
 
+def _do_support_needed(args):
+    tri, b0 = args
+    if supportNeeded(tri, global_triangles, b0):
+        return tri
+    return None
+
 # given a list of triangles
 # returns a list of list of slices to draw supports for any downward-facing triangles
 #returns a list of lists of slices
 def generateSupports(triangles, layerThickness):
 
     bounds = findBoundaries(triangles)
-
     trianglesDown = downward(triangles)
-
-    trianglesForSupport = list()
-    for tri in trianglesDown:
-        if supportNeeded(tri, triangles, bounds[0]):
-            trianglesForSupport.insert(0,copy.deepcopy(tri))
+    
+    cores = max(1, multiprocessing.cpu_count() // 4)
+    pool = multiprocessing.Pool(processes=cores, initializer=_init_mp, initargs=(extrudeWidth, delta, supportInfill, bedWidth, triangles))
+    
+    tasks = [(tri, bounds[0]) for tri in trianglesDown]
+    trianglesForSupport = []
+    
+    for res in pool.imap_unordered(_do_support_needed, tasks):
+        if res is not None:
+            trianglesForSupport.insert(0, copy.deepcopy(res))
+    
+    pool.close()
+    pool.join()
 
     supportShapes = list()
     for triangle in trianglesForSupport:
@@ -704,22 +959,67 @@ def generateSupports(triangles, layerThickness):
 
     return supportSlices
 
+
+def getTopBottomSurfaceIndices(slices, numBottom, numTop):
+    totalLayers = len(slices)
+    numBottom = int(max(0, numBottom))
+    numTop = int(max(0, numTop))
+    
+    surface_indices = set()
+    
+    def get_bbox(perimeter):
+        if not perimeter: return (0,0,0,0)
+        xs = [p for line in perimeter for p in (line.p0.x, line.p1.x)]
+        ys = [p for line in perimeter for p in (line.p0.y, line.p1.y)]
+        return (min(xs), max(xs), min(ys), max(ys))
+        
+    def is_significantly_different(bbox1, bbox2):
+        if bbox1 == (0,0,0,0) or bbox2 == (0,0,0,0):
+            return True
+        tol = extrudeWidth * 1.5
+        return (bbox1[0] < bbox2[0] - tol or 
+                bbox1[1] > bbox2[1] + tol or 
+                bbox1[2] < bbox2[2] - tol or 
+                bbox1[3] > bbox2[3] + tol)
+                
+    for i in range(totalLayers):
+        bbox = get_bbox(slices[i].perimeter)
+        
+        # Check if it is a bottom surface (exposed to the bottom)
+        if i == 0 or is_significantly_different(bbox, get_bbox(slices[i-1].perimeter)):
+            for j in range(i, min(i + numBottom, totalLayers)):
+                surface_indices.add(j)
+                
+        # Check if it is a top surface (exposed to the top)
+        if i == totalLayers - 1 or is_significantly_different(bbox, get_bbox(slices[i+1].perimeter)):
+            for j in range(max(0, i - numTop + 1), i + 1):
+                surface_indices.add(j)
+                
+    return surface_indices
+
 # given a list of slices and per-print top/bottom layer counts,
 # fills the topBottom list on the relevant slices with solid infill lines
-def generateTopBottomLayers(slices, numBottom, numTop):
-    numBottom = int(numBottom)
-    numTop = int(numTop)
-    bottom_indices = range(min(numBottom, len(slices)))
-    top_indices = range(max(0, len(slices) - numTop), len(slices))
-    surface_indices = set(bottom_indices) | set(top_indices)
-    for i in surface_indices:
-        slices[i].topBottom = infill(slices[i].perimeter, 1.0)
+def generateTopBottomLayers(slices, numBottom, numTop, topBottomSpacing=0.71):
+    surface_indices = getTopBottomSurfaceIndices(slices, numBottom, numTop)
+    
+    # Calculate density percent based on extrudeWidth ratio to spacing
+    percent = min(1.0, max(0.01, extrudeWidth / max(topBottomSpacing, 0.01)))
+    
+    cores = max(1, multiprocessing.cpu_count() // 4)
+    pool = multiprocessing.Pool(processes=cores, initializer=_init_mp, initargs=(extrudeWidth, delta, supportInfill, bedWidth))
+    
+    tasks = [(i, slices[i].perimeter, percent, "Lines") for i in surface_indices]
+    for i, res in pool.imap_unordered(_do_infill, tasks):
+        slices[i].topBottom = res
+        
+    pool.close()
+    pool.join()
     return slices
 
 
 # given a list of slices with the list of line segments
 # write the G code to the given file 
-def writeGcode(slices,filename, progressCallback=None):
+def writeGcode(slices,filename, printSpeed=900, supportSpeed=800, travelSpeed=2700, laserPower=None, progressCallback=None):
 
     #Gcode for unit:
 
@@ -738,6 +1038,8 @@ def writeGcode(slices,filename, progressCallback=None):
     f.write("G28 X0 Y0 Z0\n")
     f.write("G92 E0\n")
     f.write("G29\n")
+    if laserPower is not None:
+        f.write("M3 S"+str(laserPower)+"\n")
 
     #o = bedWidth/2 #origin
     o = 0
@@ -758,39 +1060,47 @@ def writeGcode(slices,filename, progressCallback=None):
         f.write(";perimeter\n")
         for l in s.perimeter:
             #move to start of line
-            f.write("G0 F2700 X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
+            f.write("G0 F"+str(travelSpeed)+" X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
             #move to end while extruding
             dist = math.sqrt(pow(l.p1.x-l.p0.x,2) + pow(l.p1.y-l.p0.y,2))
             E += dist*extrudeRate
-            f.write("G1 F900 X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
+            f.write("G1 F"+str(printSpeed)+" X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
+
+        if len(s.sideWalls) > 0:
+            f.write(";side_walls\n")
+            for l in s.sideWalls:
+                f.write("G0 F"+str(travelSpeed)+" X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
+                dist = math.sqrt(pow(l.p1.x-l.p0.x,2) + pow(l.p1.y-l.p0.y,2))
+                E += dist*extrudeRate
+                f.write("G1 F"+str(printSpeed)+" X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
 
         if len(s.topBottom) > 0:
             f.write(";top_bottom\n")
         for l in s.topBottom:
-            f.write("G0 F2700 X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
+            f.write("G0 F"+str(travelSpeed)+" X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
             dist = math.sqrt(pow(l.p1.x-l.p0.x,2) + pow(l.p1.y-l.p0.y,2))
             E += dist*extrudeRate
-            f.write("G1 F900 X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
+            f.write("G1 F"+str(printSpeed)+" X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
 
         if len(s.support) > 0:
             f.write(";support\n")
         for l in s.support:
             #move to start of line
-            f.write("G0 F2700 X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
+            f.write("G0 F"+str(travelSpeed)+" X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
             #move to end while extruding
             dist = math.sqrt(pow(l.p1.x-l.p0.x,2) + pow(l.p1.y-l.p0.y,2))
             E += dist*extrudeRate
-            f.write("G1 F800 X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
+            f.write("G1 F"+str(supportSpeed)+" X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
 
         if len(s.infill) > 0:
             f.write(";infill\n")
         for l in s.infill:
             #move to start of line
-            f.write("G0 F2700 X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
+            f.write("G0 F"+str(travelSpeed)+" X"+str(o+l.p0.x)+" Y"+str(o+l.p0.y)+" Z"+str(l.p0.z)+"\n")
             #move to end while extruding
             dist = math.sqrt(pow(l.p1.x-l.p0.x,2) + pow(l.p1.y-l.p0.y,2))
             E += dist*extrudeRate
-            f.write("G1 F900 X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
+            f.write("G1 F"+str(printSpeed)+" X"+str(o+l.p1.x)+" Y"+str(o+l.p1.y)+" E"+str(E)+"\n")
         
         layer+=1
 
@@ -798,6 +1108,8 @@ def writeGcode(slices,filename, progressCallback=None):
     f.write(";End GCode\n")
     f.write("M104 S0\n")
     f.write("M140 S0\n")
+    if laserPower is not None:
+        f.write("M5\n")
     f.write("G91\n")
     f.write("G1 E-1 F300\n")
     f.write("G1 Z+0.5 E-5 X-20 Y-20 F2700\n")
@@ -806,41 +1118,128 @@ def writeGcode(slices,filename, progressCallback=None):
     f.write("G90\n")
 
 
-def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayers=3, topLayers=3, progressCallback=None):
+def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayers=3, topLayers=3, printerProfile=None, progressCallback=None):
+    global bedWidth, extrudeWidth, supportInfill, delta
+
+    if printerProfile is not None:
+        bedWidth = _to_float(getattr(printerProfile, "bedWidth", bedWidth), bedWidth)
+        extrudeWidth = _to_float(getattr(printerProfile, "extrudeWidth", extrudeWidth), extrudeWidth)
+        support_infill_percent = _to_float(getattr(printerProfile, "supportInfill", supportInfill * 100.0), supportInfill * 100.0)
+        supportInfill = max(0.0, min(1.0, support_infill_percent / 100.0))
+        numSideWalls = int(max(1, round(_to_float(getattr(printerProfile, "numSideWalls", 1), 1))))
+        printSpeed = int(max(1, round(_to_float(getattr(printerProfile, "speed", speed), speed))))
+        laserPower = _to_float(getattr(printerProfile, "power", power), power)
+        infill_pattern = getattr(printerProfile, "infillPattern", "Lines")
+        topBottomSpacing = _to_float(getattr(printerProfile, "topBottomSpacing", extrudeWidth), extrudeWidth)
+    else:
+        numSideWalls = 1
+        printSpeed = int(max(1, round(_to_float(speed, 900))))
+        laserPower = _to_float(power, 0)
+        infill_pattern = "Lines"
+        topBottomSpacing = extrudeWidth
+
+    delta = max(extrudeWidth / 100.0, 1e-9)
+    supportSpeed = int(max(1, round(printSpeed * 0.9)))
+    travelSpeed = int(max(1, round(printSpeed * 3.0)))
+
     print("Slicing "+filename+" with layer thickness "+str(layerThickness)+" and infill percent "+str(infillPercent))
+    active_pool = None
     try:
         triangles = fileToTriangles('enviroment.stl')
-        slices_ = separateSlices(triangles, layerThickness)
         supportSlices = generateSupports(triangles, layerThickness)
 
-        slices = list()
-
-        for i, s in enumerate(slices_):
-            slices += [cleanPerimeter(s)]
+        bounds = findBoundaries(triangles)
+        numSlices = int((bounds[1]-bounds[0])/layerThickness)
+        zs = [bounds[0]+z*layerThickness for z in range(0, numSlices+1)]
+        
+        cores = max(1, multiprocessing.cpu_count() // 4)
+        pool = multiprocessing.Pool(processes=cores, initializer=_init_mp, initargs=(extrudeWidth, delta, supportInfill, bedWidth, triangles))
+        active_pool = pool
+        
+        tasks = [(z, bounds[0], bounds[1], layerThickness) for z in zs]
+        completed = 0
+        slices_dict = {}
+        
+        for z_val, res in pool.imap_unordered(_do_separate_and_clean, tasks):
+            slices_dict[z_val] = res
+            completed += 1
             if progressCallback:
-                progressCallback(int((i + 1) / len(slices_) * 60))
+                progressCallback(int((completed) / len(tasks) * 60))
+                
+        pool.close()
+        pool.join()
+        active_pool = None
+        
+        slices = [slices_dict[z] for z in zs if z in slices_dict]
+        # Pad with empty slices if any z-values are missing
+        if len(slices) < len(zs):
+            for z in zs:
+                if z not in slices_dict:
+                    slices.append(Slice(zValue_=z, perimeter_=[], isSurface_=False))
 
+        slices = generateWalls(numSideWalls, slices)
+
+        surface_indices = getTopBottomSurfaceIndices(slices, bottomLayers, topLayers)
+        
         print("Finished Creating Walls...")
-        if(infillPercent != 0):
-            for i, s in enumerate(slices):
-                if s.isSurface:
-                    s.infill = infill(s.perimeter, 1)
+        
+        # Start infill multiprocessing
+        cores = max(1, multiprocessing.cpu_count() // 4)
+        pool = multiprocessing.Pool(processes=cores, initializer=_init_mp, initargs=(extrudeWidth, delta, supportInfill, bedWidth))
+        active_pool = pool
+        tasks = []
+        for i, s in enumerate(slices):
+            if i in surface_indices:
+                # Top/Bottom material is generated in s.topBottom, keep regular infill off here.
+                s.infill = []
+            elif infillPercent != 0:
+                peri = s.perimeter if isinstance(s.perimeter, list) else []
+                if peri:
+                    tasks.append((i, peri, min(1.0, max(0.0, infillPercent)), infill_pattern))
                 else:
-                    s.infill = infill(s.perimeter, infillPercent)
-                if progressCallback:
-                    progressCallback(60 + int((i + 1) / len(slices) * 60))
+                    s.infill = []
+            else:
+                s.infill = []
+
+        completed = 0
+        total_tasks = len(tasks)
+        for i, res in pool.imap_unordered(_do_infill, tasks):
+            slices[i].infill = res
+            completed += 1
+            if progressCallback and total_tasks > 0:
+                progressCallback(60 + int((completed) / total_tasks * 30))
+        
+        pool.close()
+        pool.join()
+        active_pool = None
 
         print("Infill Complete")
-        generateTopBottomLayers(slices, bottomLayers, topLayers)
+        generateTopBottomLayers(slices, bottomLayers, topLayers, topBottomSpacing)
         print("Top/Bottom Layers Complete")
         for shape in supportSlices:
             for s in range(len(shape)):
                 slices[s].support += infill(shape[s].perimeter,supportInfill)
         print("Writing Gcode to File...")
-        writeGcode(slices, filename, progressCallback=progressCallback)
+        writeGcode(
+            slices,
+            filename,
+            printSpeed=printSpeed,
+            supportSpeed=supportSpeed,
+            travelSpeed=travelSpeed,
+            laserPower=laserPower,
+            progressCallback=progressCallback
+        )
         print("Gcode writing complete")
+        if progressCallback:
+            progressCallback(100)
     except Exception as e:
-        print("Error slicing: "+str(e))
+        print("Error slicing: " + str(e))
+        traceback.print_exc()
+        if active_pool is not None:
+            active_pool.terminate()
+            active_pool.join()
+        if progressCallback:
+            progressCallback(100)
 
 def main():
     filename = sys.argv[1]

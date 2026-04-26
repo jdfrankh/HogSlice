@@ -26,10 +26,10 @@ class HogforgeVulkan(VulkanManager):
         self.moverOverlay = OverlayTemplate(self.vtkWidget, self.colors, self.renderer, self.events, displaySizeAndLocation=moverOverlayPositions.OverlayScreenLocation)
         self.moverOverlay.enablePressing = True
 
-        self.moverOverlay.addElement("Translate", "BUTTON", moverOverlayPositions.TranslateButton, lambda: self.setMoveType("Translate"))
-        self.moverOverlay.addElement("Rotate","BUTTON", moverOverlayPositions.RotateButton, lambda: self.setMoveType("Rotate"))
-        self.moverOverlay.addElement("Scale","BUTTON",moverOverlayPositions.ScaleButton, lambda: self.setMoveType("Scale"))
-        self.moverOverlay.addElement("SetFlat","BUTTON", moverOverlayPositions.SetFlatButton, lambda: self.setMoveType("SetFlat"))
+        self.moverOverlay.addElement("Translate", "BUTTON", moverOverlayPositions.TranslateButton[0], lambda: self.setMoveType("Translate"), pressedThreshold=moverOverlayPositions.TranslateButton[1], imagePath="assets/overlay_icons/translate.png")
+        self.moverOverlay.addElement("Rotate", "BUTTON", moverOverlayPositions.RotateButton[0], lambda: self.setMoveType("Rotate"), pressedThreshold=moverOverlayPositions.RotateButton[1], imagePath="assets/overlay_icons/rotate.png")
+        self.moverOverlay.addElement("Scale", "BUTTON", moverOverlayPositions.ScaleButton[0], lambda: self.setMoveType("Scale"), pressedThreshold=moverOverlayPositions.ScaleButton[1], imagePath="assets/overlay_icons/scale.png")
+        self.moverOverlay.addElement("SetFlat", "BUTTON", moverOverlayPositions.SetFlatButton[0], lambda: self.setMoveType("SetFlat"), pressedThreshold=moverOverlayPositions.SetFlatButton[1], imagePath="assets/overlay_icons/setflat.png")
 
         # Gcode stats overlay - top-right panel shown after slicing
         self.gcodeStatsOverlay = GcodeStatsOverlay(self.vtkWidget, self.renderer)

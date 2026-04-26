@@ -1,0 +1,61 @@
+{
+    "version": 1,
+    "selectedPrinter": "Hogforge V2",
+    "printers": {
+        "Hogforge V1": {
+            "bedWidth": 2.0,
+            "bedHieght": 2.0,
+            "bedDepth": 2.0,
+            "laser": {
+                "id": "Raycus 50W",
+                "laserWattage": 50,
+                "focalLens": 140
+            },
+            "power": 50.0,
+            "speed": 100.0,
+            "infill": 0,
+            "layerHeight": "0.05",
+            "laserWidth": 0.01,
+            "material": "M2 Steel",
+            "numSideWalls": 2.0,
+            "supportInfill": 50.0,
+            "extrudeWidth": 0.71,
+            "bottomLayers": 3,
+            "topLayers": 3,
+            "offsetx": 0,
+            "offsety": 0,
+            "sweepTime": 1000.0,
+            "layerDownTime": 200.0,
+            "focalLength": 240.0,
+            "bedHeight": 2.0
+        },
+        "Hogforge V2": {
+            "bedWidth": 2.0,
+            "bedHieght": 2.0,
+            "bedDepth": 2.0,
+            "laser": {
+                "id": "Raycus 100W",
+                "laserWattage": 100,
+                "focalLens": 140
+            },
+            "power": 50.0,
+            "speed": 180.0,
+            "infill": 90.0,
+            "layerHeight": "0.05",
+            "laserWidth": 0.01,
+            "material": "M2 Steel",
+            "numSideWalls": 3.0,
+            "supportInfill": 55.0,
+            "extrudeWidth": 0.8,
+            "bottomLayers": 4.0,
+            "topLayers": 4.0,
+            "offsetx": 0,
+            "offsety": 0,
+            "sweepTime": 900.0,
+            "layerDownTime": 175.0,
+            "focalLength": 240.0,
+            "bedHeight": 2.0,
+            "infillPattern": "Lines"
+        }
+    }
+}

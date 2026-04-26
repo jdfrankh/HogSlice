@@ -85,6 +85,31 @@ class ActorManager:
 
             self.Actors.append(axis)
 
+    def updatePrinterBed(self, printerBed):
+        if not printerBed or len(printerBed) < 3:
+            return
+
+        self.printerBed = printerBed
+
+        # Keep existing STL actors and gizmos aligned with the active printer bed.
+        for actor in self.Actors:
+            if hasattr(actor, "printerBed"):
+                actor.printerBed = self.printerBed
+            gizmo = getattr(actor, "gizmoActor", None)
+            if gizmo is not None and hasattr(gizmo, "printerBed"):
+                gizmo.printerBed = self.printerBed
+
+        # Remove existing build chamber actors from scene and actor list.
+        for actor in list(self.Actors):
+            if actor.actorType == ActorType.BUILD_CHAMBER:
+                actor.removeActor()
+                self.Actors.remove(actor)
+
+        # Insert fresh build chamber for the new printer settings.
+        buildChamber = BuildChamber(self.vtkWidget, self.colors, self.renderer, self.events, self.picker)
+        buildChamber.constructNewPrinter(self.printerBed)
+        self.Actors.insert(0, buildChamber)
+
     
     def removeActor(self, onlyPicked):
 
@@ -147,7 +172,7 @@ class ActorManager:
     def selectActor(self, clickPos, moveType, appendSelected = False):
         possibleSelection = False 
 
-        self.moveActionFlag = True
+        self.moveActionFlag = False
         
 
         for actor in (self.Actors):
@@ -201,17 +226,24 @@ class ActorManager:
                 
                 actor.deselectAction()
 
+            # Only enable move behavior when something is actually selected.
+            self.moveActionFlag = possibleSelection
                 
         return possibleSelection
 
     
 
     def moveSelectedActors(self ):
-        if(self.moveActionFlag):
-            for actor in self.Actors:
-                actor.moveAction()
+        if not self.moveActionFlag:
+            return False
 
-        return self.moveActionFlag
+        moved = False
+        for actor in self.Actors:
+            if getattr(actor, "isSelected", False):
+                actor.moveAction()
+                moved = True
+
+        return moved
 
           
     def setActorOpacity(self, level):

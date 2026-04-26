@@ -39,10 +39,18 @@ class moverOverlayPositions:
 
     ]
 
-    TranslateButton = [200, 25 ]
-    RotateButton = [425, 25 ]
-    ScaleButton = [625, 25]
-    SetFlatButton = [850, 25]
+    buttonSize = [0.035, 0.035] # normalized width (height dynamically flexes to stay geometrically square)
+    
+    # We will position them smoothly across the bottom.
+    TranslateButtonCenter = [0.25, 0.08]
+    RotateButtonCenter = [0.4, 0.08]
+    ScaleButtonCenter = [0.55, 0.08]
+    SetFlatButtonCenter = [0.7, 0.08]
+    
+    TranslateButton = [TranslateButtonCenter, buttonSize]
+    RotateButton = [RotateButtonCenter, buttonSize]
+    ScaleButton = [ScaleButtonCenter, buttonSize]
+    SetFlatButton = [SetFlatButtonCenter, buttonSize]
 
 
 class GcodeInformerPositions:

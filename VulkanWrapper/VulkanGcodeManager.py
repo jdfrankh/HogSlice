@@ -18,6 +18,7 @@ class VulkanGcodeManager:
     GCODE_TYPE_INFILL = 1
     GCODE_TYPE_SUPPORT = 2
     GCODE_TYPE_TOP_BOTTOM = 3
+    GCODE_TYPE_TRAVEL = 4
 
 
     def __init__(self, vtkWidget, colors, renderer, events):
@@ -140,6 +141,18 @@ class VulkanGcodeManager:
                     layer_line_count += 1
                     if current_section in type_counts:
                         type_counts[current_section] += 1
+                elif cmd == 'G0' and in_layer:
+                    id0 = points.InsertNextPoint(cur_x, cur_y, cur_z)
+                    id1 = points.InsertNextPoint(new_x, new_y, new_z)
+                    vtkLine = vtk.vtkLine()
+                    vtkLine.GetPointIds().SetId(0, id0)
+                    vtkLine.GetPointIds().SetId(1, id1)
+                    lines.InsertNextCell(vtkLine)
+                    type_array.InsertNextValue(self.GCODE_TYPE_TRAVEL)
+                    order_array.InsertNextValue(global_order)
+                    global_order += 1
+                    layer_line_count += 1
+                    # G0 travel moves intentionally excluded from type_counts
 
                 cur_x, cur_y, cur_z = new_x, new_y, new_z
 
@@ -178,13 +191,14 @@ class VulkanGcodeManager:
         self._gcode_threshold.SetInputArrayToProcess(
             0, 0, 0, vtk.vtkDataObject.FIELD_ASSOCIATION_CELLS, "Order")
 
-        # Lookup table: wall=blue, infill=orange, support=green, top_bottom=red
+        # Lookup table: wall=blue, infill=orange, support=green, top_bottom=red, travel=grey
         lut = vtk.vtkLookupTable()
-        lut.SetNumberOfTableValues(4)
+        lut.SetNumberOfTableValues(5)
         lut.SetTableValue(0, 0.27, 0.27, 1.0, 1.0)   # wall
         lut.SetTableValue(1, 1.0, 0.67, 0.0, 1.0)     # infill
         lut.SetTableValue(2, 0.27, 0.8, 0.27, 1.0)    # support
         lut.SetTableValue(3, 1.0, 0.2, 0.2, 1.0)      # top/bottom
+        lut.SetTableValue(4, 0.5, 0.5, 0.5, 1.0)      # travel (G0)
         lut.Build()
 
         mapper = vtk.vtkDataSetMapper()
@@ -192,7 +206,7 @@ class VulkanGcodeManager:
         mapper.SetScalarModeToUseCellData()
         mapper.SelectColorArray("Type")
         mapper.SetLookupTable(lut)
-        mapper.SetScalarRange(0, 3)
+        mapper.SetScalarRange(0, 4)
 
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)

@@ -3,7 +3,7 @@ from enum import Enum
 from PyQt5.QtWidgets import (
     QApplication, QProgressBar, QToolBar, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QSlider, QDoubleSpinBox, QPushButton, QFrame, QFormLayout, QComboBox,
-    QSizePolicy, QMenu, QAction, QShortcut, QLineEdit, QListWidget, QStackedLayout
+    QSizePolicy, QMenu, QAction, QShortcut, QLineEdit, QListWidget, QStackedLayout, QCheckBox
 )
 from PyQt5.QtCore import Qt
 
@@ -21,6 +21,7 @@ class QType(Enum):
     PROGRESS = 7
     SPACING = 8
     SLIDER = 9
+    CHECKBOX = 10
 
 
 
@@ -31,14 +32,15 @@ class PageManager:
     elements = [] # Element containting item, widget, and function to update widget if necessary
 
 
-    def __init__(self, layoutType=0):
+    def __init__(self, layoutType=0, alignTopLeft=False):
         self.Page = QWidget()
         if(layoutType == 0):
             self.layout = QVBoxLayout()
         else:
             self.layout = QHBoxLayout()
 
-        self.layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        # By default Qt will spread items or honor their size policies.
+        # Use addStretch() inside your specific layouts to pack items.
         self.Page.setLayout(self.layout)
 
         #self.layouts.append(QVBoxLayout())
@@ -75,13 +77,29 @@ class PageManager:
             if(len(listElements) > 4):
                 item.setSingleStep(listElements[4])
             item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            self.layout.addWidget(item)
+            if displayText:
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.addWidget(QLabel(displayText))
+                row_layout.addWidget(item)
+                self.layout.addWidget(row)
+            else:
+                self.layout.addWidget(item)
         elif elementType == QType.COMBOBOX:
             item = QComboBox()
             item.currentTextChanged.connect(function)
             item.addItems(listElements)
             item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            self.layout.addWidget(item)
+            if displayText:
+                row = QWidget()
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.addWidget(QLabel(displayText))
+                row_layout.addWidget(item)
+                self.layout.addWidget(row)
+            else:
+                self.layout.addWidget(item)
         elif elementType == QType.LABEL:
             item = QLabel(displayText)
             self.layout.addWidget(item)
@@ -122,7 +140,15 @@ class PageManager:
             else:                 # vertical slider expands height
                 item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
             self.layout.addWidget(item)
-
+            
+        elif elementType == QType.CHECKBOX:
+            item = QCheckBox(displayText)
+            if listElements and len(listElements) > 0:
+                item.setChecked(listElements[0])
+            if function:
+                item.stateChanged.connect(function)
+            item.setSizePolicy(scaleFuction[0], scaleFuction[1])
+            self.layout.addWidget(item)
 
         else:
             return
@@ -133,6 +159,9 @@ class PageManager:
 
     def addSpacing(self, layoutType=-1, spacing=10):
         self.layout.addSpacing(spacing)
+        
+    def addStretch(self, stretch=1):
+        self.layout.addStretch(stretch)
     
     def addPage(self, page):
         self.layout.addWidget(page)

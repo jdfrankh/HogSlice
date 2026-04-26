@@ -35,6 +35,12 @@ class VulkanManager:
 
     picker = vtk.vtkPropPicker()
 
+    def _on_resize(self, obj, event):
+        if hasattr(self, 'moverOverlay') and self.moverOverlay.overlayEnabled:
+            # We DO NOT destroy the actors inside resizing! We literally just shift the vtkPoints coordinate mappings
+            # otherwise VTK OpenGL causes scene bounds invalidation and drops frames out of clip range.
+            self.moverOverlay.resizeOverlay()
+
     def __init__(self, printerBed = [], updatePagesFunction = None, getterFunctions = []):
         self.vtkWidget = QVTKRenderWindowInteractor(None)
         self.colors = vtk.vtkNamedColors()
@@ -50,7 +56,7 @@ class VulkanManager:
         self.vtkWidget.setFocusPolicy(Qt.ClickFocus)
         self.vtkWidget.setFocus()
 
-        
+        self.vtkWidget.GetRenderWindow().AddObserver(vtk.vtkCommand.WindowResizeEvent, self._on_resize)
 
         self.events.AddObserver("LeftButtonPressEvent", self.onLeftButtonPress)
         self.events.AddObserver("MouseMoveEvent", self.onMouseMove)
@@ -92,6 +98,10 @@ class VulkanManager:
         self.ActorManager.changeMoveType(moveType)
 
         self.renderer.GetRenderWindow().Render()
+        if self.updatePagesRequest:
+            self.updatePagesRequest()
+        if self.updatePagesRequest:
+            self.updatePagesRequest()
         print("Selected Move Type:", self.selectedMoveType)
 
     def onKeyPress(self, obj, event):
@@ -101,6 +111,10 @@ class VulkanManager:
 
     def parseActor(self, fileName):
         self.ActorManager.insertActor(fileName)
+        if self.updatePagesRequest:
+            self.updatePagesRequest()
+        if self.updatePagesRequest:
+            self.updatePagesRequest()
 
 
     def printActors(self):
@@ -117,6 +131,14 @@ class VulkanManager:
             self.moverOverlay.createOverlayActor()
         
         self.renderer.GetRenderWindow().Render()
+        if self.updatePagesRequest:
+            self.updatePagesRequest()
+        if self.updatePagesRequest:
+            self.updatePagesRequest()
+
+    def rebuildBuildChamber(self, printerBed):
+        self.ActorManager.updatePrinterBed(printerBed)
+        self.vtkWidget.GetRenderWindow().Render()
 
     def onLeftButtonPress(self, obj, event):
         print("Left Button Pressed----------------------------------")
@@ -132,7 +154,8 @@ class VulkanManager:
     def onMouseMove(self, obj, event):
 
         isSomethingMoving = self.ActorManager.moveSelectedActors()
-
+        if isSomethingMoving and self.updatePagesRequest:
+            self.updatePagesRequest()
         return isSomethingMoving
 
 
@@ -141,6 +164,10 @@ class VulkanManager:
         self.events.toggleCamera(False)
 
         self.ActorManager.finishActions()
+        if self.updatePagesRequest:
+            self.updatePagesRequest()
+        if self.updatePagesRequest:
+            self.updatePagesRequest()
    
         
 

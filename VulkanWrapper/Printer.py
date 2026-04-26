@@ -1,9 +1,5 @@
 
-
-
-
-import json
-import os
+from VulkanWrapper.ConfigProfileBase import ConfigProfileBase
 
 
 class Laser:
@@ -19,7 +15,7 @@ class Laser:
 
 
 
-class Printer:
+class Printer(ConfigProfileBase):
 
     
 
@@ -31,17 +27,20 @@ class Printer:
     layerDownTime = 200
 
     infill = 0 # In percent
+    infillPattern = "Lines"
     power = 50 # In watts
     focalLength = 240 # In mm
     speed = 100 # In mm/min
-    layerHeight = 0.1 # In mm
+    
     laserWidth = 0.01 # in mm, for the raycus printer
     layerHeight = 0.1 # In mm
 
+    layerHeight = 0.1 # In mm
     material = "M2 Steel"    
-    numWalls = 2
+    numSideWalls = 2
     supportInfill = 50.0
     extrudeWidth = 0.71
+    topBottomSpacing = 0.71
     bottomLayers = 3
     topLayers = 3
 
@@ -52,6 +51,7 @@ class Printer:
     laser = None
 
     def __init__(self, _bedWidth, _bedHieght, _bedDepth, _laser= None):
+        super().__init__()
         self.bedWidth = _bedWidth
         self.bedHieght = _bedHieght
         self.bedDepth = _bedDepth
@@ -59,6 +59,8 @@ class Printer:
             self.laser = _laser
         else:
             self.laser = Laser("Raycus 50W", 50, 140)
+
+        self.capture_defaults()
 
     def changeSetting(self, settingName, value):
         if hasattr(self, settingName):
@@ -81,14 +83,18 @@ class Printer:
             "sweepTime": self.sweepTime,
             "layerDownTime": self.layerDownTime,
             "infill": self.infill,
+            "infillPattern": self.infillPattern,
             "power": self.power,
             "speed": self.speed,
             "layerHeight": self.layerHeight,
             "laserWidth": self.laserWidth,
             "material": self.material,
-            "numWalls": self.numWalls,
+            "numSideWalls": self.numSideWalls,
             "supportInfill": self.supportInfill,
             "extrudeWidth": self.extrudeWidth,
+            "topBottomSpacing": self.topBottomSpacing,
+            "bottomLayers": self.bottomLayers,
+            "topLayers": self.topLayers,
             "offsets": list(self.offsets),
             "laser": {
                 "id": self.laser.id,
@@ -98,33 +104,12 @@ class Printer:
         }
 
     def saveToFile(self, filepath):
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        with open(filepath, 'w') as f:
-            json.dump(self.toDict(), f, indent=4)
+        self.save_settings(filepath)
 
     @staticmethod
     def loadFromFile(filepath):
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-        laser_data = data.get("laser", {})
-        laser = Laser(
-            laser_data.get("id", "Raycus 50W"),
-            laser_data.get("laserWattage", 50),
-            laser_data.get("focalLens", 140),
-        )
-        printer = Printer(
-            data.get("bedWidth", 2),
-            data.get("bedHieght", 2),
-            data.get("bedDepth", 2.5),
-            _laser=laser,
-        )
-        for key in ["sweepTime", "layerDownTime", "infill", "power", "speed",
-                     "layerHeight", "laserWidth", "material", "numWalls",
-                     "supportInfill", "extrudeWidth", "bottomLayers", "topLayers"]:
-            if key in data:
-                setattr(printer, key, data[key])
-        if "offsets" in data:
-            printer.offsets = list(data["offsets"])
+        printer = Printer(2, 2, 2.5)
+        printer.import_settings(filepath)
         return printer
     
 
