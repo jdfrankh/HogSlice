@@ -5,6 +5,7 @@ from VulkanWrapper.GcodeStatsOverlay import GcodeStatsOverlay
 
 
 from constants import moverOverlayPositions, GcodeInformerPositions
+from runtime_paths import get_runtime_path
 
 
 #TODO:
@@ -49,6 +50,19 @@ class HogforgeVulkan(VulkanManager):
     def onLeftButtonPress(self, obj, event):
         clickPosition = super().onLeftButtonPress(obj, event)
 
+        # Per-type row click
+        clicked_type = self.gcodeStatsOverlay.consume_type_click(clickPosition)
+        if clicked_type is not None:
+            self.gcodeManager.toggleTypeVisible(clicked_type)
+            self._refresh_gcode_overlay()
+            return
+
+        # Whole gcode ON/OFF toggle
+        if self.gcodeStatsOverlay.consume_toggle_click(clickPosition):
+            self.gcodeManager.toggleGcodeVisible()
+            self._refresh_gcode_overlay()
+            return
+
         shift_pressed = self.vtkWidget.GetRenderWindow().GetInteractor().GetShiftKey()
 
         if self.moverOverlay.determineIfOverlayPressed(clickPosition):
@@ -82,11 +96,19 @@ class HogforgeVulkan(VulkanManager):
     
     def displayGcode(self, printer=None):
         self.ActorManager.setActorOpacity(0.01)
-        layers_info = self.gcodeManager.displayGcode('enviroment.gcode')
+        self._last_printer = printer
+        layers_info = self.gcodeManager.displayGcode(get_runtime_path('enviroment.gcode'))
+        self._refresh_gcode_overlay()
+        return layers_info
+
+    def _refresh_gcode_overlay(self):
+        printer = getattr(self, '_last_printer', None)
         self.gcodeStatsOverlay.show(
             self.gcodeManager._gcode_stats,
-            num_layers=len(layers_info),
+            num_layers=len(self.gcodeManager._gcode_layers_info),
             sweep_time_ms=printer.sweepTime if printer else 1000,
             layer_down_time_ms=printer.layerDownTime if printer else 200,
+            gcode_visible=self.gcodeManager.isGcodeVisible(),
+            hidden_types=self.gcodeManager._hidden_types,
+            printer=printer,
         )
-        return layers_info

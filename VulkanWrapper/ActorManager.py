@@ -11,6 +11,7 @@ from .eventManager import EventManager
 
 from constants import BuildChamberDisplay
 import math
+from runtime_paths import get_runtime_path
 
 # Actor manager should handle all rendering requests...
 #color change can be imported,
@@ -18,7 +19,7 @@ import math
 #Picker needs to be imported
 class ActorManager:
 
-    def exportAllActorsToSTL(self):
+    def exportAllActorsToSTL(self, output_path=None):
         """
         Export all non-build-chamber actors to a single STL file.
         """
@@ -53,10 +54,11 @@ class ActorManager:
         append_filter.Update()
         merged = append_filter.GetOutput()
         writer = vtk.vtkSTLWriter()
-        #return writer
-        writer.SetFileName('enviroment.stl')
+        output_path = output_path or get_runtime_path('enviroment.stl')
+        writer.SetFileName(output_path)
         writer.SetInputData(merged)
         writer.Write()
+        return output_path
 
     Actors = []
 

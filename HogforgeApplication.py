@@ -15,6 +15,9 @@ from HogforgeVulkan import HogforgeVulkan
 import pageCreator as pg
 import json
 import os
+import sys
+import shutil
+from runtime_paths import get_runtime_path
 
 
 
@@ -132,7 +135,15 @@ class HogforgeApplication(WindowManager):
 
 
     def saveToFile(self):
-        name = QFileDialog.getSaveFileName(self, 'Save Gcode', '', "Gcode files (*.gcode)")
+        src = get_runtime_path('enviroment.gcode')
+        if not os.path.exists(src):
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, 'No Gcode', 'No gcode has been generated yet. Please slice first.')
+            return
+        name = QFileDialog.getSaveFileName(self, 'Save Gcode', '', 'Gcode files (*.gcode)')
+        if name[0]:
+            shutil.copy2(src, name[0])
+            print(f'Gcode saved to {name[0]}')
 
     def exportGcode(self):
         print("Exporting Gcode with settings:")
@@ -147,7 +158,7 @@ class HogforgeApplication(WindowManager):
         self.progressBar.setValue(0)  # Reset progress bar
         self.thread = QThread()
         self.worker = SlicerWorker(
-            'enviroment.gcode',
+            get_runtime_path('enviroment.gcode'),
             float(self.currentPrinter.layerHeight),
             infillNormalized,
             self.currentPrinter.power,
@@ -166,7 +177,7 @@ class HogforgeApplication(WindowManager):
         self.thread.finished.connect(self.thread.deleteLater)
         self.thread.start()
 
-    def showGcodeEnvironment(self):
+    def showGcodeEnvironment(self, gcode_path=None):
         layers_info = self.vtk_manager.displayGcode(self.currentPrinter)
         max_layer = max(len(layers_info) - 1, 0)
         last_layer_lines = layers_info[-1] if layers_info else 0
@@ -197,15 +208,14 @@ class HogforgeApplication(WindowManager):
 
 
     def savePrinter(self):
-        import os
-        printersDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Printers")
+        printersDir = self._profiles_dir()
         name = QFileDialog.getSaveFileName(self, 'Save Printer Profile', printersDir, "JSON files (*.json)")
         if name[0]:
             self.currentPrinter.saveToFile(name[0])
             print(f"Printer profile saved to {name[0]}")
 
     def importPrinter(self):
-        printersDir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Printers")
+        printersDir = self._profiles_dir()
         name = QFileDialog.getOpenFileName(self, 'Import Printer Profile', printersDir, "JSON files (*.json)")
         if name[0]:
             try:
@@ -224,7 +234,12 @@ class HogforgeApplication(WindowManager):
                 QMessageBox.warning(self, "Import Error", f"Failed to load printer profile:\n{e}")
 
     def _profiles_dir(self):
-        profiles_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Profiles")
+        if getattr(sys, "frozen", False):
+            base_dir = os.path.join(os.getenv("APPDATA") or os.path.expanduser("~"), "HogSlice")
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+
+        profiles_dir = os.path.join(base_dir, "Profiles")
         os.makedirs(profiles_dir, exist_ok=True)
         return profiles_dir
 
@@ -256,9 +271,19 @@ class HogforgeApplication(WindowManager):
             raise ValueError("No printer profiles found in settings file")
 
         new_profiles = {}
+        default_printer_names = {"Hogforge V1", "Hogforge V2"}
         for name, data in printers_data.items():
             printer = Printer(2, 2, 2.5)
             printer.apply_settings_dict(data)
+
+            # Migrate legacy profiles where topBottomSpacing was set to extrudeWidth
+            # (the old default). Reset to layerHeight which is the correct default.
+            spacing = float(getattr(printer, "topBottomSpacing", 0.0))
+            extrude = float(getattr(printer, "extrudeWidth", 0.71))
+            layer = float(getattr(printer, "layerHeight", 0.1))
+            if abs(spacing - extrude) < 1e-6 and abs(spacing - layer) > 1e-6:
+                printer.topBottomSpacing = layer
+
             printer.capture_defaults()
             new_profiles[name] = printer
 
@@ -300,6 +325,7 @@ class HogforgeApplication(WindowManager):
         self._save_profiles_to_file(self.printerProfilesPath)
 
     def rebuildHomePage(self):
+        self.PageList = []
         new_home = self.pageCreation(HomeDisplay(self.currentPrinterName))
         new_widget = new_home.getPage()
 
@@ -658,6 +684,9 @@ class SlicerWorker(QObject):
             progressCallback=self.progress.emit
         )
         self.exportButton.setEnabled(True)  # Re-enable the export button after slicing is done
-        gcode_path =   self.filename
-        self.gcodeReady.emit(gcode_path)
+        gcode_path = self.filename
+        if os.path.exists(gcode_path):
+            self.gcodeReady.emit(gcode_path)
+        else:
+            print(f"G-code export did not produce a file: {gcode_path}")
         self.finished.emit()

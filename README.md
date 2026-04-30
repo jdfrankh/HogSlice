@@ -1,5 +1,46 @@
 Application Name - Hogslice
 
+Windows Installer Wizard
+------------------------
+
+HogSlice now includes a Windows setup wizard pipeline.
+
+Files added:
+- installer/windows/build_installer.ps1
+- installer/windows/build_installer.cmd
+- installer/windows/HogSlice.iss
+
+Prerequisites (Windows):
+- Python 3.10 - 3.12 (recommended for PyQt5 compatibility)
+- Inno Setup 6 (provides ISCC.exe)
+
+Build steps:
+1. Open PowerShell in the HogSlice repository root.
+2. Run:
+
+```powershell
+.\installer\windows\build_installer.ps1
+```
+
+No-PowerShell option (recommended on locked-down Windows):
+1. In File Explorer, go to installer/windows.
+2. Double-click build_installer.cmd.
+
+This launcher runs the PowerShell build script with a per-run ExecutionPolicy Bypass,
+so you do not need to change machine-wide execution policy settings.
+
+3. Result:
+- Executable app bundle: dist/HogSlice/HogSlice.exe
+- Setup wizard installer: installer/windows/Output/HogSlice-Setup-<version>.exe
+
+Notes:
+- The installer creates Start Menu and optional Desktop shortcuts.
+- The script uses a dedicated virtual environment at .venv-installer.
+- Installer version is pulled automatically from setup.py (the version=... field).
+- At the end of setup, `Launch HogSlice` is shown and checked by default.
+- The build script automatically launches the generated Setup.exe.
+- To skip auto-launch: `.\installer\windows\build_installer.ps1 -NoLaunchInstaller`
+
 Clear problem statement - Convert .stl and .step files into gcode the hogforge machine can interpret (GCODE)
 
 Objectives - Create an application that can manipulate a 3D file in an enviroment, and convert its coordinates into gcode for a 2D gantry machine 

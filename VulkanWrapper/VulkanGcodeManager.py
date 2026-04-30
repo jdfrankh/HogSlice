@@ -34,9 +34,59 @@ class VulkanGcodeManager:
         self._gcode_layer_cumulative = []
         self._gcode_total_lines = 0
         self._gcode_stats = {}
+        self._gcode_visible = True
+        self._hidden_types = {'travel'}   # travel (G0) hidden by default
+        self._lut = None
         # Slider refs – injected by HogforgeApplication after slicing
         self._layerSlider = None
         self._lineSlider = None
+
+    # ---- whole-gcode visibility ----
+    def isGcodeVisible(self):
+        return bool(self._gcode_visible)
+
+    def setGcodeVisible(self, visible):
+        self._gcode_visible = bool(visible)
+        if self._gcode_actor is not None:
+            self._gcode_actor.SetVisibility(self._gcode_visible)
+            self.vtkWidget.GetRenderWindow().Render()
+        return self._gcode_visible
+
+    def toggleGcodeVisible(self):
+        return self.setGcodeVisible(not self._gcode_visible)
+
+    # ---- per-type visibility ----
+    _TYPE_INDEX = {'wall': 0, 'infill': 1, 'support': 2, 'top_bottom': 3, 'travel': 4}
+    _TYPE_COLORS = [
+        (0.27, 0.27, 1.0),   # wall
+        (1.0,  0.67, 0.0),   # infill
+        (0.27, 0.8,  0.27),  # support
+        (1.0,  0.2,  0.2),   # top_bottom
+        (0.5,  0.5,  0.5),   # travel
+    ]
+
+    def isTypeVisible(self, type_key):
+        return type_key not in self._hidden_types
+
+    def setTypeVisible(self, type_key, visible):
+        if visible:
+            self._hidden_types.discard(type_key)
+        else:
+            self._hidden_types.add(type_key)
+        self._apply_lut()
+
+    def toggleTypeVisible(self, type_key):
+        self.setTypeVisible(type_key, type_key in self._hidden_types)
+
+    def _apply_lut(self):
+        if self._lut is None:
+            return
+        for key, idx in self._TYPE_INDEX.items():
+            r, g, b = self._TYPE_COLORS[idx]
+            alpha = 0.0 if key in self._hidden_types else 1.0
+            self._lut.SetTableValue(idx, r, g, b, alpha)
+        self._lut.Modified()
+        self.vtkWidget.GetRenderWindow().Render()
 
     def setSliders(self, layerSlider, lineSlider):
         """Inject the QSlider widgets created by the pageCreator system."""
@@ -48,6 +98,8 @@ class VulkanGcodeManager:
             self.renderer.RemoveActor(self._gcode_actor)
             self._gcode_actor = None
         self._gcode_threshold = None
+        self._lut = None
+        self._gcode_visible = True
 
         #Set the opacity of all existing actors back to 100%
 
@@ -71,7 +123,7 @@ class VulkanGcodeManager:
         current_section = 'wall'
         current_feedrate = 2700.0  # default rapid feedrate
         travel_time_s = 0.0
-        type_counts = {'wall': 0, 'infill': 0, 'support': 0, 'top_bottom': 0}
+        type_counts = {'wall': 0, 'infill': 0, 'support': 0, 'top_bottom': 0, 'travel': 0}
         in_layer = False
         layer_line_count = 0
         global_order = 0
@@ -152,20 +204,24 @@ class VulkanGcodeManager:
                     order_array.InsertNextValue(global_order)
                     global_order += 1
                     layer_line_count += 1
-                    # G0 travel moves intentionally excluded from type_counts
+                    # G0 travel moves counted separately
+                    type_counts['travel'] += 1
 
                 cur_x, cur_y, cur_z = new_x, new_y, new_z
 
         if in_layer:
             layers_info.append(layer_line_count)
 
+        import slicer as _slicer_mod
         self._gcode_stats = {
             'wall':       type_counts['wall'],
             'infill':     type_counts['infill'],
             'support':    type_counts['support'],
             'top_bottom': type_counts['top_bottom'],
+            'travel':     type_counts['travel'],
             'total':      global_order,
             'est_time_s': travel_time_s,
+            'volume_cm3': getattr(_slicer_mod, 'last_volume_cm3', 0.0),
         }
 
         # Build polydata with type + order scalars
@@ -194,12 +250,9 @@ class VulkanGcodeManager:
         # Lookup table: wall=blue, infill=orange, support=green, top_bottom=red, travel=grey
         lut = vtk.vtkLookupTable()
         lut.SetNumberOfTableValues(5)
-        lut.SetTableValue(0, 0.27, 0.27, 1.0, 1.0)   # wall
-        lut.SetTableValue(1, 1.0, 0.67, 0.0, 1.0)     # infill
-        lut.SetTableValue(2, 0.27, 0.8, 0.27, 1.0)    # support
-        lut.SetTableValue(3, 1.0, 0.2, 0.2, 1.0)      # top/bottom
-        lut.SetTableValue(4, 0.5, 0.5, 0.5, 1.0)      # travel (G0)
         lut.Build()
+        self._lut = lut
+        self._apply_lut()   # populate colors, respecting any pre-existing hidden types
 
         mapper = vtk.vtkDataSetMapper()
         mapper.SetInputConnection(self._gcode_threshold.GetOutputPort())
@@ -233,6 +286,7 @@ class VulkanGcodeManager:
         # self._legendWidget.show()
 
         self._gcode_actor = actor
+        self._gcode_actor.SetVisibility(self._gcode_visible)
         self.renderer.AddActor(actor)
 
         
@@ -291,7 +345,7 @@ class VulkanGcodeManager:
         if max_order < 0:
             self._gcode_actor.SetVisibility(False)
         else:
-            self._gcode_actor.SetVisibility(True)
+            self._gcode_actor.SetVisibility(self._gcode_visible)
             self._gcode_threshold.SetLowerThreshold(0)
             self._gcode_threshold.SetUpperThreshold(max_order)
             self._gcode_threshold.SetThresholdFunction(self._gcode_threshold.THRESHOLD_BETWEEN)

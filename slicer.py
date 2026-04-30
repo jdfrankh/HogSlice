@@ -6,58 +6,46 @@ import string
 import copy
 import struct
 import multiprocessing
+from runtime_paths import get_runtime_path
 import traceback
 
-def _init_mp(_extrudeWidth, _delta, _supportInfill, _bedWidth, _triangles=None):
-    global extrudeWidth, delta, supportInfill, bedWidth, global_triangles
+def _init_mp(_extrudeWidth, _delta, _supportInfill, _bedWidth, _triangles=None, _radialMaxSpacing=5.0):
+    global extrudeWidth, delta, supportInfill, bedWidth, global_triangles, radialMaxSpacing
     extrudeWidth = _extrudeWidth
     delta = _delta
     supportInfill = _supportInfill
     bedWidth = _bedWidth
     global_triangles = _triangles
+    radialMaxSpacing = _radialMaxSpacing
 
 def _do_separate_and_clean(args):
     s, b0, b1, layerThickness = args
     currentSegment = []
     currentSegmentSurface = False
-    
+
+    if s <= (b0 + layerThickness) or s >= (b1 - layerThickness):
+        currentSegmentSurface = True
+
     for triangle in global_triangles:
         point1 = intersectSlice(Line(p0_=triangle.p0, p1_=triangle.p1), s)
         point2 = intersectSlice(Line(p0_=triangle.p1, p1_=triangle.p2), s)
         point3 = intersectSlice(Line(p0_=triangle.p2, p1_=triangle.p0), s)
 
-        points_ = list(set([point1, point2, point3]))
+        # Collect non-None intersection points, deduplicated by coordinate equality.
+        # (set() uses object identity for Point, not .equals(), so we dedupe manually.)
         points = []
+        for p in (point1, point2, point3):
+            if p is not None and not any(p.equals(q) for q in points):
+                points.append(p)
 
-        for point in points_:
-            if point is None:
-                points_.remove(None)
-                break
-        
-        for i in range(0,len(points_)):
-            j = i+1
-            unique = True
-            while j < len(points_):
-                if points_[i].equals(points_[j]):
-                    unique = False
-                j+=1
-            if unique:
-                points.insert(0,copy.deepcopy(points_[i]))
-
-        if s <= (b0+layerThickness) or s >= (b1-layerThickness):
-            currentSegmentSurface = True
-
+        # Exactly 2 distinct points → one valid perimeter segment.
+        # 0 or 1 point: triangle doesn't cross the plane (or touches at a vertex) → skip.
+        # 3 points: plane is coplanar with the triangle face (flat top/bottom face).
+        #   Generating three micro-segments here creates noise loops that pollute
+        #   the perimeter and survive the closed-loop filter.  Skip entirely.
         if len(points) == 2:
             currentSegment.append(Line(points[0], points[1]))
-        elif len(points) == 3:
-            segment1 = Line(points[0], points[1])
-            segment2 = Line(points[1], points[2])
-            segment3 = Line(points[2], points[0])
-            currentSegmentSurface = True
-            currentSegment.append(segment1)
-            currentSegment.append(segment2)
-            currentSegment.append(segment3)
-     
+
     slice_obj = Slice(zValue_=s, perimeter_=currentSegment, isSurface_=currentSegmentSurface)
     return s, cleanPerimeter(slice_obj)
 
@@ -72,6 +60,18 @@ bedWidth = 150.0#mm
 extrudeWidth = 0.71#mm
 supportInfill = .5
 delta = extrudeWidth/100.0 #delta for floating point comparison
+radialMaxSpacing = 5.0  # mm – max arc gap between adjacent radial lines at the perimeter
+
+# Written by sliceItem so callers can read part volume_cm3 after slicing
+last_volume_cm3 = 0.0
+
+
+def _polygon_area_mm2(lines):
+    """Signed shoelace area (mm²) of a closed polygon described by a list of Line segments."""
+    area = 0.0
+    for line in lines:
+        area += (line.p0.x * line.p1.y) - (line.p1.x * line.p0.y)
+    return abs(area) * 0.5
 
 
 def _to_float(value, default):
@@ -415,7 +415,8 @@ def isInsidePolygon(point, perimeter, max_x, delta, Z):
 #assumes print bed area is a square
 def infill(perimeter, percent, pattern="Lines"):
 
-    percent = min(1.0, max(0.0, float(percent)))
+    # Keep lower bound at 0, but allow values >1.0 for tightly packed top/bottom fill.
+    percent = max(0.0, float(percent))
 
     if (len(perimeter) == 0):
         return []
@@ -436,9 +437,10 @@ def infill(perimeter, percent, pattern="Lines"):
     width = max(max_x - min_x, extrudeWidth)
     height = max(max_y - min_y, extrudeWidth)
 
-    # Keep density behavior tied to part size (with a minimum of one line).
-    target_span = max(width, height)
-    numLines = max(1, int(round((target_span * percent) / extrudeWidth)))
+    # Use width (the span that lines are distributed across) so that
+    # gap = extrudeWidth / percent exactly, regardless of aspect ratio.
+    target_span = max(width, height)   # kept for Radial/Honeycomb patterns only
+    numLines = max(1, int(round((width * percent) / extrudeWidth)))
 
     gap = width / numLines
     infill = []
@@ -446,20 +448,36 @@ def infill(perimeter, percent, pattern="Lines"):
     if pattern == "Radial":
         center_x = (min_x + max_x) / 2
         center_y = (min_y + max_y) / 2
-        numLines = max(2, int(round((360 * percent) / 5))) # arbitrary density factor
-        # radial lines
-        for r in range(numLines):
-            # Spanning line completely across the object
-            angle = math.radians(r * (180 / numLines))
+
+        # Approximate radius from center to perimeter edge
+        approx_radius = target_span / 2.0
+        max_radial_spacing = max(0.001, radialMaxSpacing)
+
+        # Minimum lines required so the arc between adjacent lines <= max_radial_spacing.
+        # arc = radius * dtheta  =>  dtheta = spacing / radius
+        # Lines needed to cover 180 degrees: ceil(pi / dtheta)
+        if approx_radius > 0:
+            min_lines_for_spacing = math.ceil(math.pi * approx_radius / max_radial_spacing)
+        else:
+            min_lines_for_spacing = 2
+
+        # Base density from percent, capped to avoid insane counts
+        base_count = max(2, numLines)
+
+        # Use whichever is more, but hard-cap at 5000 lines to prevent hangs
+        num_radial = min(max(base_count, min_lines_for_spacing), 5000)
+
+        for r in range(num_radial):
+            angle = r * (math.pi / num_radial)
             length = target_span * 2
             x_start = center_x - math.cos(angle) * length
             y_start = center_y - math.sin(angle) * length
-            x_end = center_x + math.cos(angle) * length
-            y_end = center_y + math.sin(angle) * length
-            
+            x_end   = center_x + math.cos(angle) * length
+            y_end   = center_y + math.sin(angle) * length
+
             fullLine = Line(Point(x_start, y_start, Z), Point(x_end, y_end, Z))
             inters = []
-            
+
             for line in perimeter:
                 sect = intersection(line, fullLine)
                 if sect is not None:
@@ -469,19 +487,15 @@ def infill(perimeter, percent, pattern="Lines"):
                             new = False
                     if new:
                         inters.append(sect)
-            
-            # Sort by distance from the far start point to naturally pair outside-in
+
             inters.sort(key=lambda p: math.hypot(p.x-x_start, p.y-y_start))
-            
-            # Check every segment between consecutive intersections
+
             for i in range(1, len(inters)):
                 newLine = Line(inters[i-1], inters[i])
                 if math.hypot(newLine.p0.x - newLine.p1.x, newLine.p0.y - newLine.p1.y) < delta:
                     continue
                 mx = (newLine.p0.x + newLine.p1.x) / 2
                 my = (newLine.p0.y + newLine.p1.y) / 2
-                
-                # If midpoint is inside object, keep the line
                 if isInsidePolygon(Point(mx, my, Z), perimeter, max_x + target_span, delta, Z):
                     overlap = False
                     for l in perimeter:
@@ -490,7 +504,7 @@ def infill(perimeter, percent, pattern="Lines"):
                             break
                     if not overlap:
                         infill.append(newLine)
-                        
+
         return infill
 
     elif pattern == "Honeycomb":
@@ -585,11 +599,11 @@ def infill(perimeter, percent, pattern="Lines"):
         return infill
 
     # Default pattern: Lines (vertical lines)
-    for x in range(numLines + 1):
-        
-        #start with full line
+    # Offset by gap/2 so lines are centered in each cell — none land on the
+    # perimeter boundary, and we always get exactly numLines interior lines.
+    for x in range(numLines):
 
-        x_pos = min_x + (x * gap)
+        x_pos = min_x + (x + 0.5) * gap
         fullLine = Line(Point(x_pos, min_y, Z), Point(x_pos, max_y, Z))
         inters = []
 
@@ -616,7 +630,17 @@ def infill(perimeter, percent, pattern="Lines"):
                         if lineEqual(l,newLine):
                             overlap = True;
                     if not overlap:
-                        infill.append(newLine)
+                        # Midpoint check: verify the fill segment actually sits
+                        # inside the shape.  The even-odd pair count can be
+                        # fooled by stray/open perimeter segments on complex
+                        # meshes, producing lines that span voids or bleed
+                        # outside the boundary.  isInsidePolygon provides a
+                        # conservative fallback — skip any line whose midpoint
+                        # isn't genuinely inside.
+                        mx = (newLine.p0.x + newLine.p1.x) / 2
+                        my = (newLine.p0.y + newLine.p1.y) / 2
+                        if isInsidePolygon(Point(mx, my, Z), perimeter, max_x + width, delta, Z):
+                            infill.append(newLine)
         '''
         else:
             print("Perimeter not manifold\n")
@@ -645,96 +669,217 @@ def findNextPoint(point, lines):
 # returns a new slice free of duplicate or interior line segments
 # and in order for optimized drawing
 def cleanPerimeter(s):
-    #for line in s:
-        #if L is a duplicate and if every triangle containing L is on the slice, remove all L in base
-    setPerimeter = copy.deepcopy(s.perimeter)
-    
-    i = 0
-    while i < len(setPerimeter):
-        j = i+1
-        while j < len(setPerimeter):
-            if lineEqual(setPerimeter[i],setPerimeter[j]):
-                setPerimeter.remove(setPerimeter[j])
-            else:
-                j+=1
-        i+=1
+    """
+    Cleans a raw slice perimeter produced by triangle-plane intersection:
+      1. Drop zero/degenerate segments (plane tangent to a vertex).
+      2. Remove exact duplicates (shared triangle edges intersected twice).
+      3. Chain segments into connected loops, reversing where needed.
+      4. Discard any open chains (fragment noise that never closes).
+      5. Discard noise loops shorter than one extrude width.
+    Returns a new Slice whose perimeter segments are ordered and clean.
+    """
+    segs = copy.deepcopy(s.perimeter)
+
+    # --- 1. Drop degenerate (zero/near-zero length) segments ---
+    # STL intersection at a vertex produces Line(p, p). Minimum real edge
+    # length for any printable geometry is at least one laser width.
+    min_seg = extrudeWidth * 0.05
+    segs = [seg for seg in segs
+            if math.hypot(seg.p1.x - seg.p0.x, seg.p1.y - seg.p0.y) >= min_seg]
+
+    # --- 2. Remove duplicates (same segment, forward or reversed) ---
+    deduped = []
+    for seg in segs:
+        if not any(lineEqual(seg, d) for d in deduped):
+            deduped.append(seg)
+    segs = deduped
+
+    # --- 3. Chain segments into loops ---
+    # STL verts are 32-bit floats; in theory shared vertices between triangles
+    # are bit-identical, but some CAD exporters introduce sub-millimetre gaps
+    # (up to ~0.05 mm) between what should be adjacent endpoints.  Use a snap
+    # tolerance large enough to bridge these gaps without accidentally jumping
+    # across the space between distinct geometric features (typically ≥ 1 mm).
+    snap_tol = extrudeWidth * 0.1   # ~0.07 mm — tolerates typical exporter drift
+
+    # Separate, tighter tolerance for the closure check so we don't seal a
+    # loop that is genuinely open (e.g. a boundary arc that was never capped).
+    close_tol = extrudeWidth * 0.5   # ~0.35 mm — loop considered closed
+
+    remaining = list(segs)
+    chains = []
+    while remaining:
+        chain = [remaining.pop(0)]
+        grew = True
+        while grew:
+            grew = False
+            head = chain[0].p0
+            tail = chain[-1].p1
+            for i, seg in enumerate(remaining):
+                d00 = math.hypot(seg.p0.x - tail.x, seg.p0.y - tail.y)
+                d01 = math.hypot(seg.p1.x - tail.x, seg.p1.y - tail.y)
+                if d00 < snap_tol:
+                    chain.append(remaining.pop(i)); grew = True; break
+                elif d01 < snap_tol:
+                    chain.append(Line(Point(seg.p1.x, seg.p1.y, seg.p1.z),
+                                      Point(seg.p0.x, seg.p0.y, seg.p0.z)))
+                    remaining.pop(i); grew = True; break
+                # Also try prepending to the head of the chain
+                d10 = math.hypot(seg.p1.x - head.x, seg.p1.y - head.y)
+                d11 = math.hypot(seg.p0.x - head.x, seg.p0.y - head.y)
+                if d10 < snap_tol:
+                    chain.insert(0, remaining.pop(i)); grew = True; break
+                elif d11 < snap_tol:
+                    chain.insert(0, Line(Point(seg.p1.x, seg.p1.y, seg.p1.z),
+                                         Point(seg.p0.x, seg.p0.y, seg.p0.z)))
+                    remaining.pop(i); grew = True; break
+        chains.append(chain)
+
+    # --- 4. Discard open chains; only emit closed loops ---
+    # A real perimeter forms a closed polygon: the tail of the last segment
+    # connects back to the head of the first.  Open fragments are noise from
+    # non-manifold mesh edges or boundary triangles.
+    result = []
+    for chain in chains:
+        head = chain[0].p0
+        tail = chain[-1].p1
+        is_closed = math.hypot(tail.x - head.x, tail.y - head.y) < close_tol
+
+        # --- 5. Discard short noise loops ---
+        total_len = sum(math.hypot(seg.p1.x - seg.p0.x, seg.p1.y - seg.p0.y)
+                        for seg in chain)
+        if is_closed and total_len >= extrudeWidth:
+            result.extend(chain)
+
+    return Slice(zValue_=s.zValue, perimeter_=result, isSurface_=s.isSurface)
 
 
-    '''    
-    pathPerimeter = list()
-    print("Perimetering")
-    k = 0
-    while setPerimeter:
-        pathPerimeter.insert(0,copy.deepcopy(setPerimeter[0]))
-        setPerimeter = setPerimeter[1:]
-        while setPerimeter:
-            print(len(pathPerimeter))
-            loc = findNextPoint(pathPerimeter[k].p1, setPerimeter)
-            if loc is None:
-                #print(pathPerimeter[k].p1.toString())
-                #for line in setPerimeter:
-                #    print(line.toString())
-                k+=1
-                break
-            if pathPerimeter[k].p1.equals(setPerimeter[loc].p0):
-                pathPerimeter.insert(0,copy.deepcopy(setPerimeter[loc]))
-            else:
-                pathPerimeter.insert(0,copy.deepcopy(setPerimeter[loc].reverse()))
-            setPerimeter.remove(setPerimeter[loc])
-            k+=1
-    
-    for line in pathPerimeter:
-        if line.p0.equals(line.p1):
-            pathPerimeter.remove(line)
-    finalPerimeter = [value for value in pathPerimeter if value != None]
-    
-    '''
+def _split_perimeter_into_loops(perimeter):
+    """
+    Split a chained, concatenated perimeter (output of cleanPerimeter) back
+    into individual closed loops.  Consecutive segments within a loop share an
+    endpoint; a gap in the chain marks the boundary between two loops.
 
-    finalPerimeter = setPerimeter
-    #need to order perimeter such that it is manifold
-    return Slice(zValue_=s.zValue, perimeter_=finalPerimeter, isSurface_=s.isSurface)
+    Uses the same snap tolerance as cleanPerimeter's chaining step so that
+    the loops are split at exactly the same boundaries they were chained at.
+    Separate loops (outer boundary vs. hole boundaries) have inter-loop gaps
+    of several mm, far larger than this tolerance.
+    """
+    if not perimeter:
+        return []
+    snap = extrudeWidth * 0.1   # must match cleanPerimeter snap_tol
+    loops, current = [], [perimeter[0]]
+    for seg in perimeter[1:]:
+        tail = current[-1].p1
+        if math.hypot(seg.p0.x - tail.x, seg.p0.y - tail.y) < snap:
+            current.append(seg)
+        else:
+            loops.append(current)
+            current = [seg]
+    loops.append(current)
+    return loops
 
 
-# given a perimeter (list of line segments) on a single slice,
-# offsets each segment inward by a given distance using the centroid
-# returns a new list of offset line segments
-def offsetPerimeter(perimeter, distance):
-    if len(perimeter) == 0:
+def _offset_loop_inward(loop, distance):
+    """
+    Inward offset of one closed polygon loop by `distance`, using per-edge
+    inward unit normals and miter joins at vertices.
+
+    - Winding order is detected via signed area (CCW / CW) so the normal
+      direction is always into the interior, regardless of how the loop was
+      wound.
+    - Miter distance is capped at 4× to prevent runaway spikes at very
+      acute corners.
+    - Returns [] if the offset loop flipped winding (i.e. it collapsed
+      through itself — feature is too small for this wall pass).
+    """
+    if len(loop) < 2:
         return []
 
-    # compute centroid of all perimeter endpoints
-    cx, cy = 0.0, 0.0
-    count = 0
-    for line in perimeter:
-        cx += line.p0.x + line.p1.x
-        cy += line.p0.y + line.p1.y
-        count += 2
-    cx /= count
-    cy /= count
+    pts = [seg.p0 for seg in loop]
+    z   = pts[0].z
+    n   = len(pts)
 
-    offset = []
-    for line in perimeter:
-        p0 = copy.deepcopy(line.p0)
-        p1 = copy.deepcopy(line.p1)
+    # Signed area (×2): positive = CCW, negative = CW
+    area2 = sum(pts[i].x * pts[(i+1) % n].y - pts[(i+1) % n].x * pts[i].y
+                for i in range(n))
+    if abs(area2) < 1e-10:
+        return []
+    winding = 1.0 if area2 > 0 else -1.0
 
-        # offset p0 toward centroid
-        dx0 = cx - p0.x
-        dy0 = cy - p0.y
-        mag0 = math.sqrt(dx0**2 + dy0**2)
-        if mag0 > delta:
-            p0.x += (dx0 / mag0) * distance
-            p0.y += (dy0 / mag0) * distance
+    # Per-edge inward unit normals.
+    # For a CCW polygon, the inward normal of edge (p→q) is the left-hand
+    # perpendicular: (-dy, dx) / |edge|.
+    # For CW, flip by negating (multiply by winding).
+    enorm = []
+    for i in range(n):
+        p0, p1 = pts[i], pts[(i + 1) % n]
+        dx, dy = p1.x - p0.x, p1.y - p0.y
+        L = math.sqrt(dx*dx + dy*dy)
+        if L < 1e-9:
+            enorm.append((0.0, 0.0))
+        else:
+            enorm.append((-dy / L * winding, dx / L * winding))
 
-        # offset p1 toward centroid
-        dx1 = cx - p1.x
-        dy1 = cy - p1.y
-        mag1 = math.sqrt(dx1**2 + dy1**2)
-        if mag1 > delta:
-            p1.x += (dx1 / mag1) * distance
-            p1.y += (dy1 / mag1) * distance
+    # Per-vertex miter offset: average the two adjacent edge normals,
+    # then scale so the vertex sits at `distance` from both edges.
+    off_pts = []
+    for i in range(n):
+        n0 = enorm[(i - 1) % n]
+        n1 = enorm[i]
+        ax = (n0[0] + n1[0]) * 0.5
+        ay = (n0[1] + n1[1]) * 0.5
+        alen = math.sqrt(ax*ax + ay*ay)
+        if alen < 1e-9:
+            # Degenerate corner (nearly reversed edges) — skip offset
+            off_pts.append(Point(pts[i].x, pts[i].y, z))
+            continue
+        # Miter length = distance / alen; cap at 4× to avoid giant spikes
+        d = min(distance / alen, 4.0 * distance)
+        off_pts.append(Point(
+            pts[i].x + ax / alen * d,
+            pts[i].y + ay / alen * d,
+            z
+        ))
 
-        offset.append(Line(p0, p1))
-    return offset
+    # Reject if offset loop has flipped winding (collapsed through itself)
+    off_area2 = sum(off_pts[i].x * off_pts[(i+1) % n].y -
+                    off_pts[(i+1) % n].x * off_pts[i].y
+                    for i in range(n))
+    if (off_area2 > 0) != (area2 > 0):
+        return []
+    if abs(off_area2) < abs(area2) * 0.01:
+        return []
+
+    # Build output segments, skipping degenerate (zero-length) ones
+    out = []
+    for i in range(n):
+        p0 = off_pts[i]
+        p1 = off_pts[(i + 1) % n]
+        if math.hypot(p1.x - p0.x, p1.y - p0.y) >= extrudeWidth * 0.05:
+            out.append(Line(p0, p1))
+    return out
+
+
+def offsetPerimeter(perimeter, distance):
+    """
+    Offsets each closed loop in the perimeter inward by `distance`.
+
+    The old implementation computed a single centroid from ALL perimeter
+    points (including inner holes) and pushed every point toward it.  On
+    multi-loop perimeters this produces segments that cross the entire part.
+
+    The new implementation splits the perimeter back into its constituent
+    closed loops and offsets each one independently using proper inward edge
+    normals, so every inner wall is a scaled copy of its own contour.
+    """
+    if not perimeter:
+        return []
+    result = []
+    for loop in _split_perimeter_into_loops(perimeter):
+        result.extend(_offset_loop_inward(loop, distance))
+    return result
+
 
 
 # given the number of walls and a list of slices,
@@ -743,10 +888,18 @@ def offsetPerimeter(perimeter, distance):
 # returns the slices with walls added to each slice's perimeter
 def generateWalls(numSideWalls, slices):
     for s in slices:
-        sideWalls = list()
-        for w in range(1, numSideWalls):
-            wallPerimeter = offsetPerimeter(s.perimeter, extrudeWidth * w)
-            sideWalls.extend(wallPerimeter)
+        if numSideWalls <= 1:
+            s.sideWalls = []
+            continue
+        # Group by loop first, then by inset depth, so each island's concentric
+        # shells are printed consecutively before moving to the next island.
+        # This matches the traversal order of the outer perimeter (one loop at a
+        # time) and avoids long travel jumps between islands.
+        loops = _split_perimeter_into_loops(s.perimeter)
+        sideWalls = []
+        for loop in loops:
+            for w in range(1, numSideWalls):
+                sideWalls.extend(_offset_loop_inward(loop, extrudeWidth * w))
         s.sideWalls = sideWalls
     return slices
 
@@ -960,60 +1113,123 @@ def generateSupports(triangles, layerThickness):
     return supportSlices
 
 
-def getTopBottomSurfaceIndices(slices, numBottom, numTop):
-    totalLayers = len(slices)
+def getTopBottomSurfaceIndices(slices, numBottom, numTop, detection_height=0.5, layer_thickness=0.1):
+    """
+    Area-ratio surface detection.
+
+    A layer is a TOP surface when the minimum cross-section area found within
+    `detection_height` mm above it falls below SURFACE_AREA_RATIO (80 %) of
+    the current layer's area.
+
+    This correctly handles:
+      - Absolute tops of the part (area above = 0)
+      - Mid-part ledges: a flat plate with bosses on top — the plate top is
+        detected because the boss footprint is << plate area, even though
+        *some* geometry exists above.
+      - Gentle tapers (< 20 % area change per detection window) are NOT
+        flagged, avoiding solid fill across every layer of a cone.
+
+    Bottom detection is the symmetric case looking downward.
+    """
+    SURFACE_AREA_RATIO = 0.80   # flag if area above/below < 80 % of current
+
+    total     = len(slices)
     numBottom = int(max(0, numBottom))
-    numTop = int(max(0, numTop))
-    
+    numTop    = int(max(0, numTop))
+    look      = max(1, round(detection_height / max(layer_thickness, 1e-6)))
+
+    # Precompute per-layer perimeter areas once (0 for empty layers)
+    areas = [_polygon_area_mm2(s.perimeter) if s.perimeter else 0.0
+             for s in slices]
+
     surface_indices = set()
-    
-    def get_bbox(perimeter):
-        if not perimeter: return (0,0,0,0)
-        xs = [p for line in perimeter for p in (line.p0.x, line.p1.x)]
-        ys = [p for line in perimeter for p in (line.p0.y, line.p1.y)]
-        return (min(xs), max(xs), min(ys), max(ys))
-        
-    def is_significantly_different(bbox1, bbox2):
-        if bbox1 == (0,0,0,0) or bbox2 == (0,0,0,0):
-            return True
-        tol = extrudeWidth * 1.5
-        return (bbox1[0] < bbox2[0] - tol or 
-                bbox1[1] > bbox2[1] + tol or 
-                bbox1[2] < bbox2[2] - tol or 
-                bbox1[3] > bbox2[3] + tol)
-                
-    for i in range(totalLayers):
-        bbox = get_bbox(slices[i].perimeter)
-        
-        # Check if it is a bottom surface (exposed to the bottom)
-        if i == 0 or is_significantly_different(bbox, get_bbox(slices[i-1].perimeter)):
-            for j in range(i, min(i + numBottom, totalLayers)):
-                surface_indices.add(j)
-                
-        # Check if it is a top surface (exposed to the top)
-        if i == totalLayers - 1 or is_significantly_different(bbox, get_bbox(slices[i+1].perimeter)):
-            for j in range(max(0, i - numTop + 1), i + 1):
-                surface_indices.add(j)
-                
+
+    for i in range(total):
+        area_i = areas[i]
+        if area_i <= 0:
+            continue
+
+        # --- TOP surface ---
+        # Use the NEAREST non-empty layer above (not the minimum across the
+        # window).  Taking min() across the window caused cascade failures:
+        # every plate layer within `look` distance of a boss transition had
+        # A_boss in its look-window, so every plate layer got falsely flagged.
+        # Comparing only against the closest solid layer above means only the
+        # actual boundary layer (plate→boss) is detected as a top surface.
+        # The window (detection_height) exists only to skip degenerate empty
+        # layers caused by coplanar mesh faces.
+        above_candidates = [areas[j] for j in range(i + 1, min(i + look + 1, total))
+                            if areas[j] > 0]
+        nearest_above = above_candidates[0] if above_candidates else 0.0
+        if nearest_above < area_i * SURFACE_AREA_RATIO:
+            for k in range(max(0, i - numTop + 1), i + 1):
+                if areas[k] > 0:
+                    surface_indices.add(k)
+
+        # --- BOTTOM surface ---
+        # Same logic: nearest non-empty below (last element of ascending list).
+        below_candidates = [areas[j] for j in range(max(0, i - look), i)
+                            if areas[j] > 0]
+        nearest_below = below_candidates[-1] if below_candidates else 0.0
+        if nearest_below < area_i * SURFACE_AREA_RATIO:
+            for k in range(i, min(i + numBottom, total)):
+                if areas[k] > 0:
+                    surface_indices.add(k)
+
     return surface_indices
 
 # given a list of slices and per-print top/bottom layer counts,
 # fills the topBottom list on the relevant slices with solid infill lines
-def generateTopBottomLayers(slices, numBottom, numTop, topBottomSpacing=0.71):
-    surface_indices = getTopBottomSurfaceIndices(slices, numBottom, numTop)
-    
-    # Calculate density percent based on extrudeWidth ratio to spacing
-    percent = min(1.0, max(0.01, extrudeWidth / max(topBottomSpacing, 0.01)))
-    
-    cores = max(1, multiprocessing.cpu_count() // 4)
-    pool = multiprocessing.Pool(processes=cores, initializer=_init_mp, initargs=(extrudeWidth, delta, supportInfill, bedWidth))
-    
-    tasks = [(i, slices[i].perimeter, percent, "Lines") for i in surface_indices]
+def generateTopBottomLayers(slices, numBottom, numTop, topBottomSpacing=0.71,
+                            pool=None, detection_height=0.5, layer_thickness=0.1,
+                            numSideWalls=1):
+    surface_indices = getTopBottomSurfaceIndices(
+        slices, numBottom, numTop, detection_height, layer_thickness
+    )
+
+    # Enforce minimum spacing floor and convert spacing target to infill density.
+    # Smaller spacing means denser top/bottom line packing.
+    spacing = max(0.05, float(topBottomSpacing))
+    percent = max(0.01, extrudeWidth / spacing)
+
+    print(f"Top/Bottom spacing: {topBottomSpacing} mm  \u2192  percent={percent:.4f}")
+
+    # Use each layer's own perimeter as the clip boundary.
+    # infill() uses ray-intersection against the perimeter so fill lines are
+    # always contained within the exact outline of that layer.
+    tasks = []
+    for i in surface_indices:
+        peri = slices[i].perimeter
+        if not peri:
+            continue
+        tasks.append((i, peri, percent, "Lines"))
+
+    own_pool = False
+    if pool is None:
+        cores = max(1, multiprocessing.cpu_count() // 4)
+        pool = multiprocessing.Pool(processes=cores, initializer=_init_mp,
+                                    initargs=(extrudeWidth, delta, supportInfill, bedWidth, None, radialMaxSpacing))
+        own_pool = True
+
     for i, res in pool.imap_unordered(_do_infill, tasks):
+        # Guard: if every fill line spans the full Y bounding box of the
+        # perimeter, the perimeter was too degenerate to clip against — the
+        # even-odd logic produced bounding-box-wide segments.  Print nothing
+        # rather than a solid rectangle that ignores the actual shape.
+        if res:
+            peri = slices[i].perimeter
+            ys = [pt.y for l in peri for pt in (l.p0, l.p1)]
+            bbox_h = (max(ys) - min(ys)) if ys else 0.0
+            if bbox_h > 0:
+                full_span = sum(1 for l in res
+                                if abs(l.p1.y - l.p0.y) >= bbox_h * 0.95)
+                if full_span == len(res):   # every line spans the full height
+                    res = []
         slices[i].topBottom = res
-        
-    pool.close()
-    pool.join()
+
+    if own_pool:
+        pool.close()
+        pool.join()
     return slices
 
 
@@ -1119,7 +1335,7 @@ def writeGcode(slices,filename, printSpeed=900, supportSpeed=800, travelSpeed=27
 
 
 def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayers=3, topLayers=3, printerProfile=None, progressCallback=None):
-    global bedWidth, extrudeWidth, supportInfill, delta
+    global bedWidth, extrudeWidth, supportInfill, delta, radialMaxSpacing
 
     if printerProfile is not None:
         bedWidth = _to_float(getattr(printerProfile, "bedWidth", bedWidth), bedWidth)
@@ -1131,45 +1347,49 @@ def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayer
         laserPower = _to_float(getattr(printerProfile, "power", power), power)
         infill_pattern = getattr(printerProfile, "infillPattern", "Lines")
         topBottomSpacing = _to_float(getattr(printerProfile, "topBottomSpacing", extrudeWidth), extrudeWidth)
+        radialMaxSpacing = _to_float(getattr(printerProfile, "radialMaxSpacing", 5.0), 5.0)
+        topBottomDetectionHeight = _to_float(getattr(printerProfile, "topBottomDetectionHeight", 0.5), 0.5)
     else:
         numSideWalls = 1
         printSpeed = int(max(1, round(_to_float(speed, 900))))
         laserPower = _to_float(power, 0)
         infill_pattern = "Lines"
         topBottomSpacing = extrudeWidth
+        topBottomDetectionHeight = 0.5
 
     delta = max(extrudeWidth / 100.0, 1e-9)
     supportSpeed = int(max(1, round(printSpeed * 0.9)))
     travelSpeed = int(max(1, round(printSpeed * 3.0)))
 
+    # bottomLayers / topLayers are mm thicknesses; convert to a layer count.
+    numBottom = max(1, round(float(bottomLayers) / layerThickness)) if float(bottomLayers) > 0 else 0
+    numTop    = max(1, round(float(topLayers)    / layerThickness)) if float(topLayers)    > 0 else 0
+
     print("Slicing "+filename+" with layer thickness "+str(layerThickness)+" and infill percent "+str(infillPercent))
-    active_pool = None
+    pool = None
     try:
-        triangles = fileToTriangles('enviroment.stl')
+        triangles = fileToTriangles(get_runtime_path('enviroment.stl'))
         supportSlices = generateSupports(triangles, layerThickness)
 
         bounds = findBoundaries(triangles)
         numSlices = int((bounds[1]-bounds[0])/layerThickness)
         zs = [bounds[0]+z*layerThickness for z in range(0, numSlices+1)]
-        
+
         cores = max(1, multiprocessing.cpu_count() // 4)
-        pool = multiprocessing.Pool(processes=cores, initializer=_init_mp, initargs=(extrudeWidth, delta, supportInfill, bedWidth, triangles))
-        active_pool = pool
-        
+        pool = multiprocessing.Pool(processes=cores, initializer=_init_mp,
+                                    initargs=(extrudeWidth, delta, supportInfill, bedWidth, triangles, radialMaxSpacing))
+
+        # --- Geometry slicing pass ---
         tasks = [(z, bounds[0], bounds[1], layerThickness) for z in zs]
         completed = 0
         slices_dict = {}
-        
+
         for z_val, res in pool.imap_unordered(_do_separate_and_clean, tasks):
             slices_dict[z_val] = res
             completed += 1
             if progressCallback:
                 progressCallback(int((completed) / len(tasks) * 60))
-                
-        pool.close()
-        pool.join()
-        active_pool = None
-        
+
         slices = [slices_dict[z] for z in zs if z in slices_dict]
         # Pad with empty slices if any z-values are missing
         if len(slices) < len(zs):
@@ -1178,19 +1398,15 @@ def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayer
                     slices.append(Slice(zValue_=z, perimeter_=[], isSurface_=False))
 
         slices = generateWalls(numSideWalls, slices)
-
-        surface_indices = getTopBottomSurfaceIndices(slices, bottomLayers, topLayers)
-        
+        surface_indices = getTopBottomSurfaceIndices(
+            slices, numBottom, numTop, topBottomDetectionHeight, layerThickness
+        )
         print("Finished Creating Walls...")
-        
-        # Start infill multiprocessing
-        cores = max(1, multiprocessing.cpu_count() // 4)
-        pool = multiprocessing.Pool(processes=cores, initializer=_init_mp, initargs=(extrudeWidth, delta, supportInfill, bedWidth))
-        active_pool = pool
+
+        # --- Regular infill pass (reuse pool) ---
         tasks = []
         for i, s in enumerate(slices):
             if i in surface_indices:
-                # Top/Bottom material is generated in s.topBottom, keep regular infill off here.
                 s.infill = []
             elif infillPercent != 0:
                 peri = s.perimeter if isinstance(s.perimeter, list) else []
@@ -1208,13 +1424,24 @@ def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayer
             completed += 1
             if progressCallback and total_tasks > 0:
                 progressCallback(60 + int((completed) / total_tasks * 30))
-        
-        pool.close()
-        pool.join()
-        active_pool = None
 
         print("Infill Complete")
-        generateTopBottomLayers(slices, bottomLayers, topLayers, topBottomSpacing)
+
+        # --- Volume calculation (mm³ → cm³) ---
+        # Sum shoelace area of each perimeter cross-section × layer thickness.
+        total_volume_mm3 = 0.0
+        for s in slices:
+            if s.perimeter:
+                total_volume_mm3 += _polygon_area_mm2(s.perimeter) * layerThickness
+        global last_volume_cm3
+        last_volume_cm3 = total_volume_mm3 / 1000.0
+        print(f"Part volume: {last_volume_cm3:.4f} cm³")
+
+        # --- Top/bottom pass (reuse pool) ---
+        generateTopBottomLayers(slices, numBottom, numTop, topBottomSpacing, pool=pool,
+                                  detection_height=topBottomDetectionHeight,
+                                  layer_thickness=layerThickness,
+                                  numSideWalls=numSideWalls)
         print("Top/Bottom Layers Complete")
         for shape in supportSlices:
             for s in range(len(shape)):
@@ -1235,11 +1462,17 @@ def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayer
     except Exception as e:
         print("Error slicing: " + str(e))
         traceback.print_exc()
-        if active_pool is not None:
-            active_pool.terminate()
-            active_pool.join()
+        if pool is not None:
+            pool.terminate()
+            pool.join()
+            pool = None
         if progressCallback:
             progressCallback(100)
+    finally:
+        if pool is not None:
+            pool.close()
+            pool.join()
+            pool = None
 
 def main():
     filename = sys.argv[1]

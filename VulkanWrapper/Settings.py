@@ -27,7 +27,16 @@ class Settings(ConfigProfileBase):
         ])
 
         self.add_group("Top and Bottom", [
-            self.make_setting("Number of Bottom Walls:", "bottomLayers", [0, 50, Printer.bottomLayers, 0, 1]),
-            self.make_setting("Number of Top Walls:", "topLayers", [0, 50, Printer.topLayers, 0, 1]),
+            self.make_setting("Bottom Wall Thickness (mm):", "bottomLayers", [0.0, 10.0, Printer.bottomLayers, 2, 0.05]),
+            self.make_setting("Top Wall Thickness (mm):",    "topLayers",    [0.0, 10.0, Printer.topLayers,    2, 0.05]),
             self.make_setting("Top/Bottom Wall Spacing (mm):", "topBottomSpacing", [0.01, 5.0, Printer.topBottomSpacing, 3, 0.01]),
+            self.make_setting("Surface Detection Height (mm):", "topBottomDetectionHeight", [0.05, 10.0, Printer.topBottomDetectionHeight, 2, 0.05]),
+        ])
+
+        self.add_group("Radial Infill", [
+            self.make_setting("Max Radial Spacing (mm):", "radialMaxSpacing", [0.001, 50.0, Printer.radialMaxSpacing, 3, 0.001]),
+        ])
+
+        self.add_group("Material", [
+            self.make_setting("Unit Cost ($/g):", "materialUnitCost", [0.0, 1000.0, 0.0, 4, 0.001]),
         ])

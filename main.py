@@ -1,6 +1,7 @@
 # noinspection PyUnresolvedReferences
 from PyQt5.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QDoubleSpinBox, QPushButton
 from PyQt5.QtCore import Qt
+import multiprocessing
 import sys
 from HogforgeApplication import HogforgeApplication
 
@@ -17,4 +18,5 @@ def main():
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

@@ -2,6 +2,16 @@
 from VulkanWrapper.ConfigProfileBase import ConfigProfileBase
 
 
+# Density in g/cm³ and default cost in $/g for common SLM/SLS powders.
+# Users can override cost per-printer via materialUnitCost.
+MATERIAL_PROPERTIES = {
+    'M2 Steel':   {'density': 8.16,  'default_cost_per_g': 0.12},
+    'M1 Steel':   {'density': 7.85,  'default_cost_per_g': 0.10},
+    '316L Steel': {'density': 7.99,  'default_cost_per_g': 0.15},
+    '1080 Steel': {'density': 7.83,  'default_cost_per_g': 0.09},
+}
+
+
 class Laser:
 
     id = ""
@@ -36,13 +46,16 @@ class Printer(ConfigProfileBase):
     layerHeight = 0.1 # In mm
 
     layerHeight = 0.1 # In mm
-    material = "M2 Steel"    
+    material = "M2 Steel"
+    materialUnitCost = 0.0   # $/g override; 0 = use MATERIAL_PROPERTIES default
     numSideWalls = 2
     supportInfill = 50.0
     extrudeWidth = 0.71
-    topBottomSpacing = 0.71
-    bottomLayers = 3
-    topLayers = 3
+    topBottomSpacing = layerHeight
+    topBottomDetectionHeight = 0.5  # mm – gap above/below with no geometry triggers a top/bottom surface
+    radialMaxSpacing = 5.0  # mm – max arc gap between adjacent radial lines at perimeter
+    bottomLayers = 0.3   # mm thickness of solid bottom walls
+    topLayers    = 0.3   # mm thickness of solid top walls
 
 
     offsetx = 0
@@ -61,6 +74,16 @@ class Printer(ConfigProfileBase):
             self.laser = Laser("Raycus 50W", 50, 140)
 
         self.capture_defaults()
+
+    def getMaterialDensity(self):
+        """Returns density in g/cm³ for the selected material."""
+        return MATERIAL_PROPERTIES.get(self.material, {}).get('density', 7.9)
+
+    def getMaterialCostPerGram(self):
+        """Returns $/g: uses materialUnitCost override if > 0, else table default."""
+        if self.materialUnitCost and float(self.materialUnitCost) > 0:
+            return float(self.materialUnitCost)
+        return MATERIAL_PROPERTIES.get(self.material, {}).get('default_cost_per_g', 0.10)
 
     def changeSetting(self, settingName, value):
         if hasattr(self, settingName):

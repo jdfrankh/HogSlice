@@ -49,6 +49,7 @@ class WindowManager(QMainWindow):
     def __init__(self):
         super().__init__()
 
+        self.PageList = []
         self.settingWidgets = {}
 
         self.setWindowTitle(WindowSettings.WindowTitle)

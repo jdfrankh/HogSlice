@@ -1,4 +1,6 @@
 import vtk
+import os
+import sys
 
 class OverlayTemplate:
 
@@ -39,18 +41,47 @@ class OverlayTemplate:
         self.enablePressing = enablePressing
         self.resizableImageActors = []
 
+    def _resolve_resource_path(self, imagePath):
+        if not imagePath:
+            return imagePath
+
+        if os.path.isabs(imagePath) and os.path.exists(imagePath):
+            return imagePath
+
+        candidates = []
+
+        if hasattr(sys, "_MEIPASS"):
+            candidates.append(os.path.join(sys._MEIPASS, imagePath))
+
+        if getattr(sys, "frozen", False):
+            exe_dir = os.path.dirname(sys.executable)
+            candidates.append(os.path.join(exe_dir, imagePath))
+
+        candidates.append(os.path.join(os.getcwd(), imagePath))
+
+        # Source-tree fallback when running from development environment.
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidates.append(os.path.join(project_root, imagePath))
+
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
+
+        return imagePath
+
 
     def getTexture(self, imagePath):
         if not hasattr(self, 'textureCache'):
             self.textureCache = {}
-        if imagePath not in self.textureCache:
-            reader = vtk.vtkPNMReader() if str(imagePath).endswith('.ppm') else vtk.vtkPNGReader()
-            reader.SetFileName(imagePath)
+        resolvedPath = self._resolve_resource_path(imagePath)
+        if resolvedPath not in self.textureCache:
+            reader = vtk.vtkPNMReader() if str(resolvedPath).endswith('.ppm') else vtk.vtkPNGReader()
+            reader.SetFileName(resolvedPath)
             reader.Update()
             texture = vtk.vtkTexture()
             texture.SetInputConnection(reader.GetOutputPort())
-            self.textureCache[imagePath] = texture
-        return self.textureCache[imagePath]
+            self.textureCache[resolvedPath] = texture
+        return self.textureCache[resolvedPath]
 
     def resizeOverlay(self):
         if not self.overlayEnabled:
