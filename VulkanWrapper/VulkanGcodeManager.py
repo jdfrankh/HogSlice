@@ -134,14 +134,21 @@ class VulkanGcodeManager:
                 line = raw_line.strip()
                 if not line:
                     continue
-                if line.startswith(';Layer'):
+                if line.lower().startswith(';layer_z'):
+                    # Extract Z height for 3D toolpath positioning
+                    try:
+                        cur_z = float(line.split()[1])
+                    except (IndexError, ValueError):
+                        pass
+                    continue
+                if line.lower().startswith(';layer'):
                     if in_layer:
                         layers_info.append(layer_line_count)
                         layer_line_count = 0
                     in_layer = True
                     current_section = 'wall'
                     continue
-                if line == ';perimeter':
+                if line == ';perimeter' or line == ';side_walls':
                     current_section = 'wall'
                     continue
                 if line == ';infill':
@@ -289,9 +296,13 @@ class VulkanGcodeManager:
         self._gcode_actor.SetVisibility(self._gcode_visible)
         self.renderer.AddActor(actor)
 
-        
+        # Initialize threshold to show all lines so the full toolpath is visible immediately.
+        # The slider callbacks will further restrict this as the user scrubs.
+        max_layer = len(layers_info) - 1
+        last_line  = layers_info[-1] if layers_info else 0
+        self._updateGcodeDisplay(max_layer, last_line)
+
         return layers_info
-        #self._updateGcodeDisplay()
 
     def _onLayerChanged(self, value):
         if self._gcode_layers_info and 0 <= value < len(self._gcode_layers_info):

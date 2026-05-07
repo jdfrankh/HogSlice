@@ -1,3 +1,4 @@
-git+https://github.com/Hand-and-Machine/extruder-turtle-Rhino.git
 vtk==9.4.0
 PyQt5
+trimesh
+numpy

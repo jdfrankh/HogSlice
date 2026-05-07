@@ -23,7 +23,9 @@ from runtime_paths import get_runtime_path
 
 #Referece all items concerning your application here
 from pageCreator import DisplayBase, SettingsDisplay, PrinterDisplay, TopBarDisplay, HomeDisplay, currentDisplays, PageID
-from slicer import sliceItem
+#from slicer import sliceItem
+
+from SlicerWrapper.SlicerManager import SlicerManager
 
 #This page acts as a linker between the window manager, the VTK manager, and all 
 #External values accosciated with the slicer 
@@ -31,6 +33,8 @@ from slicer import sliceItem
 class HogforgeApplication(WindowManager):
 
     Printers = ["Hogforge V1", "Hogforge V2"]
+
+    SlicerManager = None 
 
     currentPrinter = Printer(2,2,2)
     laserWidth = .01 # in mm, for the raycus printer
@@ -42,6 +46,8 @@ class HogforgeApplication(WindowManager):
     def __init__(self):
 
         layout = super().__init__()
+
+        self.SlicerManager = SlicerManager()
 
         self.printerProfilesPath = self._printer_profiles_file()
         self.printerProfiles = {}
@@ -178,6 +184,8 @@ class HogforgeApplication(WindowManager):
         self.thread.start()
 
     def showGcodeEnvironment(self, gcode_path=None):
+        if not gcode_path:
+            return
         layers_info = self.vtk_manager.displayGcode(self.currentPrinter)
         max_layer = max(len(layers_info) - 1, 0)
         last_layer_lines = layers_info[-1] if layers_info else 0
@@ -198,6 +206,9 @@ class HogforgeApplication(WindowManager):
 
             # Inject slider refs into gcodeManager so _onLayerChanged/_onLineChanged work
             self.vtk_manager.gcodeManager.setSliders(layer_slider, line_slider)
+
+            # Force display update — sliders were set with blockSignals so valueChanged never fired
+            self.vtk_manager.gcodeManager._updateGcodeDisplay(max_layer, last_layer_lines)
 
             layer_slider.show()
             line_slider.show()
@@ -672,19 +683,25 @@ class SlicerWorker(QObject):
         self.printerProfile = printerProfile
 
     def run(self):
-        sliceItem(
+        from SlicerWrapper.SlicerManager import SlicerManager
+        mgr = SlicerManager()
+        mgr.sliceItem(
             self.filename,
             self.layerThickness,
             self.infillPercent,
             self.power,
             self.speed,
-            self.bottomLayers,
             self.topLayers,
             printerProfile=self.printerProfile,
             progressCallback=self.progress.emit
         )
+        # Write the G-code file from the freshly sliced layers
+        if hasattr(mgr, 'layer_slices') and mgr.layer_slices:
+            gcode_path = mgr.writeGcodeFile(mgr.layer_slices, self.filename)
+        else:
+            gcode_path = self.filename
+
         self.exportButton.setEnabled(True)  # Re-enable the export button after slicing is done
-        gcode_path = self.filename
         if os.path.exists(gcode_path):
             self.gcodeReady.emit(gcode_path)
         else:

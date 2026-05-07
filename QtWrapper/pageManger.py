@@ -47,24 +47,26 @@ class PageManager:
         #self.Page.setLayout(self.layouts[0])
 
     def update(self, updateItems = []): # Flesh this out with a list coordinating elements whenever
-        alive_elements = []
-        for element in self.elements:
-            try:
-                if element[3] != None:
-                    #print("Updating element: ", element[0])
-                    if(element[2] == QType.LIST and element[3] == 1): # element[3] = 1 is to set update function to update with element array
-                        # Clear the list and repopulate it with the updated items
+        pass
+        # alive_elements = []
+        # for element in self.elements:
+        #     try:
+        #         if element[3] != None:
+        #             #print("Updating element: ", element[0])
+        #             if(element[2] == QType.LIST and element[3] == 1): # element[3] = 1 is to set update function to update with element array
+        #                 pass
+        #                 # Clear the list and repopulate it with the updated items
 
-                    #    print("Updating list widget: ", element[4])
-                        element[0].clear()
-                        #element[0].addItems(element[3])
-                        element[0].addItems(updateItems)
-                alive_elements.append(element)
-            except RuntimeError:
-                # Drop deleted Qt objects so future updates remain safe.
-                continue
+        #             #    print("Updating list widget: ", element[4])
+        #                 #element[0].clear()
+        #                 #element[0].addItems(element[3])
+        #                 #element[0].addItems(updateItems)
+        #         #alive_elements.append(element)
+        #     except RuntimeError:
+        #         # Drop deleted Qt objects so future updates remain safe.
+        #         continue
 
-        self.elements = alive_elements
+        #self.elements = alive_elements
 
     def createElement(self,elementType, layoutType=-1, function=None, displayText="", listElements = [] , updateFunction = None, scaleFuction = [QSizePolicy.Fixed, QSizePolicy.Fixed]):
         if elementType == QType.BUTTON:
@@ -118,6 +120,7 @@ class PageManager:
             item = QListWidget()
             item.addItems(listElements)
             item.itemClicked.connect(function)
+            item.setAutoScroll(False)
             if isinstance(self.layout, QVBoxLayout):
                 item.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
             else:

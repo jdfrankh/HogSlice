@@ -72,10 +72,11 @@ class WindowManager(QMainWindow):
         return layout
 
     def _registerSettingWidget(self, attr_name, widget, widget_type):
+
         if not attr_name or widget is None:
-            return
+           return
         if attr_name not in self.settingWidgets:
-            self.settingWidgets[attr_name] = []
+           self.settingWidgets[attr_name] = []
         self.settingWidgets[attr_name].append((widget, widget_type))
 
     def _updatePrinterSetting(self, attr_name, value):

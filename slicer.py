@@ -1117,26 +1117,37 @@ def getTopBottomSurfaceIndices(slices, numBottom, numTop, detection_height=0.5, 
     """
     Area-ratio surface detection.
 
-    A layer is a TOP surface when the minimum cross-section area found within
-    `detection_height` mm above it falls below SURFACE_AREA_RATIO (80 %) of
-    the current layer's area.
+    A layer is flagged as TOP surface when the cross-section area found
+    ``numTop`` layers above it (the "anchor" layer at the far edge of the
+    solid fill region) is less than SURFACE_AREA_RATIO of the current area.
 
-    This correctly handles:
-      - Absolute tops of the part (area above = 0)
-      - Mid-part ledges: a flat plate with bosses on top — the plate top is
-        detected because the boss footprint is << plate area, even though
-        *some* geometry exists above.
-      - Gentle tapers (< 20 % area change per detection window) are NOT
-        flagged, avoiding solid fill across every layer of a cone.
+    Using the anchor layer (numTop away) instead of the nearest layer above
+    breaks the cascade that previously flagged every layer of a steep taper
+    (e.g. a cone) as a top surface.  Each layer's check is now independent:
+    shifting the comparison point forward by ``numTop`` means a layer only
+    gets flagged when there is a genuine drop in cross-section *across the
+    entire fill window*, not just between two consecutive layers.
 
-    Bottom detection is the symmetric case looking downward.
+    Handles:
+      - Absolute tops (no layers above) → always flagged.
+      - Ledges: a plate with a narrow boss on top — the plate top is
+        detected because area numTop layers up equals the small boss footprint.
+      - Gentle tapers (cone) → area at numTop layers up is still close to
+        current area, so NOT flagged (infill is preserved).
+      - Steep tapers → only the layers near the actual tip are flagged.
+
+    ``detection_height`` (mm) is used only to skip degenerate empty layers
+    caused by coplanar mesh faces when looking for the anchor area.
+
+    Bottom detection is the symmetric case.
     """
-    SURFACE_AREA_RATIO = 0.80   # flag if area above/below < 80 % of current
+    SURFACE_AREA_RATIO = 0.80   # flag if area at anchor < 80 % of current
 
     total     = len(slices)
     numBottom = int(max(0, numBottom))
     numTop    = int(max(0, numTop))
-    look      = max(1, round(detection_height / max(layer_thickness, 1e-6)))
+    # skip window: how many layers to scan when searching for a non-empty anchor
+    skip      = max(1, round(detection_height / max(layer_thickness, 1e-6)))
 
     # Precompute per-layer perimeter areas once (0 for empty layers)
     areas = [_polygon_area_mm2(s.perimeter) if s.perimeter else 0.0
@@ -1150,32 +1161,53 @@ def getTopBottomSurfaceIndices(slices, numBottom, numTop, detection_height=0.5, 
             continue
 
         # --- TOP surface ---
-        # Use the NEAREST non-empty layer above (not the minimum across the
-        # window).  Taking min() across the window caused cascade failures:
-        # every plate layer within `look` distance of a boss transition had
-        # A_boss in its look-window, so every plate layer got falsely flagged.
-        # Comparing only against the closest solid layer above means only the
-        # actual boundary layer (plate→boss) is detected as a top surface.
-        # The window (detection_height) exists only to skip degenerate empty
-        # layers caused by coplanar mesh faces.
-        above_candidates = [areas[j] for j in range(i + 1, min(i + look + 1, total))
-                            if areas[j] > 0]
-        nearest_above = above_candidates[0] if above_candidates else 0.0
-        if nearest_above < area_i * SURFACE_AREA_RATIO:
+        # Check the anchor layer numTop positions above layer i.
+        # If the part has shrunk significantly at that point, layer i is at
+        # (or near) a top surface.  Using numTop as the lookahead distance
+        # means the comparison is anchored at the boundary of the fill region,
+        # so each layer's check is independent and cascades are impossible.
+        anchor_top = i + numTop
+        if anchor_top >= total:
+            # Within numTop of the part's absolute top — scan for nearest
+            # non-empty layer to see whether there is any material at all.
+            above = [areas[j] for j in range(i + 1, min(i + skip + 1, total))
+                     if areas[j] > 0]
+            area_at_anchor = above[0] if above else 0.0
+        else:
+            # Find nearest non-empty layer at or near the anchor position
+            # (handles degenerate empty layers from coplanar mesh faces).
+            candidates = [areas[j]
+                          for j in range(anchor_top, min(anchor_top + skip + 1, total))
+                          if areas[j] > 0]
+            area_at_anchor = candidates[0] if candidates else 0.0
+
+        if area_at_anchor < area_i * SURFACE_AREA_RATIO:
             for k in range(max(0, i - numTop + 1), i + 1):
                 if areas[k] > 0:
                     surface_indices.add(k)
 
         # --- BOTTOM surface ---
-        # Same logic: nearest non-empty below (last element of ascending list).
-        below_candidates = [areas[j] for j in range(max(0, i - look), i)
-                            if areas[j] > 0]
-        nearest_below = below_candidates[-1] if below_candidates else 0.0
-        if nearest_below < area_i * SURFACE_AREA_RATIO:
+        # Symmetric: anchor numBottom positions below layer i.
+        anchor_bot = i - numBottom
+        if anchor_bot < 0:
+            below = [areas[j] for j in range(max(0, i - skip), i)
+                     if areas[j] > 0]
+            area_at_anchor_bot = below[-1] if below else 0.0
+        else:
+            candidates = [areas[j]
+                          for j in range(max(0, anchor_bot - skip), anchor_bot + 1)
+                          if areas[j] > 0]
+            area_at_anchor_bot = candidates[-1] if candidates else 0.0
+
+        if area_at_anchor_bot < area_i * SURFACE_AREA_RATIO:
             for k in range(i, min(i + numBottom, total)):
                 if areas[k] > 0:
                     surface_indices.add(k)
 
+    flagged = len(surface_indices)
+    print(f"[Surface detection] {flagged}/{total} layers flagged as top/bottom "
+          f"({100.0 * flagged / total:.1f}% of all layers)  "
+          f"numTop={numTop} numBottom={numBottom}")
     return surface_indices
 
 # given a list of slices and per-print top/bottom layer counts,
@@ -1405,27 +1437,40 @@ def sliceItem(filename, layerThickness, infillPercent, power, speed, bottomLayer
 
         # --- Regular infill pass (reuse pool) ---
         tasks = []
+        n_empty = 0
+        n_surface = 0
+        n_infill = 0
         for i, s in enumerate(slices):
             if i in surface_indices:
                 s.infill = []
+                n_surface += 1
             elif infillPercent != 0:
                 peri = s.perimeter if isinstance(s.perimeter, list) else []
                 if peri:
                     tasks.append((i, peri, min(1.0, max(0.0, infillPercent)), infill_pattern))
+                    n_infill += 1
                 else:
                     s.infill = []
+                    n_empty += 1
             else:
                 s.infill = []
+                n_empty += 1
+
+        total_layers = len(slices)
+        print(f"[Infill pass] total={total_layers}  surface(top/bot)={n_surface}  "
+              f"infill={n_infill}  empty/skipped={n_empty}  infillPercent={infillPercent:.2f}")
 
         completed = 0
         total_tasks = len(tasks)
+        total_infill_lines = 0
         for i, res in pool.imap_unordered(_do_infill, tasks):
             slices[i].infill = res
+            total_infill_lines += len(res)
             completed += 1
             if progressCallback and total_tasks > 0:
                 progressCallback(60 + int((completed) / total_tasks * 30))
 
-        print("Infill Complete")
+        print(f"Infill Complete — {total_infill_lines} total infill lines generated")
 
         # --- Volume calculation (mm³ → cm³) ---
         # Sum shoelace area of each perimeter cross-section × layer thickness.

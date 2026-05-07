@@ -61,7 +61,7 @@ class DisplayBase:
 
         return listOfSettings
 
-#Instead of harf-coding. Import these profiles in using the profile too?
+#Instead of hard-coding. Import these profiles in using the profile too?
 
 class _PrinterSettingsProfile(ConfigProfileBase):
     """Metadata-only class that defines the Printer page settings groups."""
@@ -105,8 +105,8 @@ class PrinterDisplay(DisplayBase):
         if self.selectedGroup not in groups and groups:
             self.selectedGroup = groups[0]
 
-        group_choices = [self.selectedGroup] + [g for g in groups if g != self.selectedGroup]
-        printer_choices = [self.selectedPrinter] + [p for p in self.printerNames if p != self.selectedPrinter]
+        group_choices = list(groups)
+        printer_choices = list(self.printerNames)
 
         rows = [
             ["CREATE PAGE", 1],
@@ -159,7 +159,7 @@ class SettingsDisplay(DisplayBase):
         if self.selectedGroup not in groups and groups:
             self.selectedGroup = groups[0]
 
-        group_choices = [self.selectedGroup] + [g for g in groups if g != self.selectedGroup]
+        group_choices = list(groups)
 
         rows = [
             ["CREATE PAGE", 1],
@@ -266,10 +266,10 @@ class HomeDisplay(DisplayBase):
 
             ["STRETCH", 1],
             ["FINISH PAGE", "Sidebar"],
-            ["SLIDER", 0, ["getVerticalMin", "getVeritcalMax", "getVerticalCurrentValue"]],
+            ["SLIDER", 0, ["getVerticalMin", "getVerticalMax", "getVerticalCurrentValue"]],
             ["CREATE PAGE", 0],
             ["VTK"],
-            ["SLIDER", 1, ["getHorizontallMin", "getHorizontalMax", "getHorizontalCurrentValue"]],
+            ["SLIDER", 1, ["getHorizontalMin", "getHorizontalMax", "getHorizontalCurrentValue"]],
             
 
             ["FINISH PAGE", "VTK Column"],

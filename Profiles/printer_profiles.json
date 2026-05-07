@@ -27,7 +27,8 @@
             "sweepTime": 1000.0,
             "layerDownTime": 200.0,
             "focalLength": 240.0,
-            "bedHeight": 2.0
+            "bedHeight": 2.0,
+            "radialMaxSpacing": 5.0
         },
         "Hogforge V2": {
             "bedWidth": 3.0,
@@ -40,13 +41,13 @@
             },
             "power": 70.0,
             "speed": 180.0,
-            "infill": 80.0,
+            "infill": 10.0,
             "layerHeight": "0.05",
             "laserWidth": 0.001,
             "material": "M2 Steel",
             "numSideWalls": 3.0,
             "supportInfill": 55.0,
-            "extrudeWidth": 0.8,
+            "extrudeWidth": 0.1,
             "bottomLayers": 0.2,
             "topLayers": 0.2,
             "offsetx": 0,
@@ -55,8 +56,8 @@
             "layerDownTime": 175.0,
             "focalLength": 240.0,
             "bedHeight": 2.0,
-            "infillPattern": "Radial",
-            "topBottomSpacing": 0.1,
+            "infillPattern": "Lines",
+            "topBottomSpacing": 0.2,
             "radialMaxSpacing": 0.3,
             "topBottomDetectionHeight": 10.0
         }
